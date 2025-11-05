@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
+	"github.com/k0rdent/mcp-k0rdent-server/internal/cli"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/config"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/kube"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
@@ -20,56 +23,248 @@ import (
 	"github.com/k0rdent/mcp-k0rdent-server/internal/server"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/tools/core"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/version"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
 	defaultListenAddr = ":8080"
 	gracefulTimeout   = 10 * time.Second
+	defaultPIDFile    = "k0rdent-mcp.pid"
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	cmd := os.Args[1]
+	args := os.Args[2:]
+
+	switch cmd {
+	case "start":
+		if err := runStart(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "stop":
+		if err := runStop(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "help", "--help", "-h":
+		printUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+func printUsage() {
+	fmt.Fprintf(os.Stderr, `k0rdent MCP Server
+
+Usage:
+  k0rdent-mcp start [flags]
+  k0rdent-mcp stop [flags]
+
+Commands:
+  start   Launch the MCP server and write a PID file for lifecycle management.
+  stop    Send a graceful termination signal to the running server referenced by the PID file.
+
+Use "k0rdent-mcp <command> --help" for more information about a command.
+`)
+}
+
+type envOverrides []string
+
+func (e *envOverrides) String() string {
+	return strings.Join(*e, ",")
+}
+
+func (e *envOverrides) Set(value string) error {
+	if !strings.Contains(value, "=") {
+		return fmt.Errorf("invalid env override %q (expected KEY=VALUE)", value)
+	}
+	*e = append(*e, value)
+	return nil
+}
+
+func runStart(args []string) error {
+	fs := flag.NewFlagSet("start", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), `Usage: k0rdent-mcp start [flags]
+
+Starts the MCP server with the provided configuration options.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+
+	var (
+		pidFile  = fs.String("pid-file", defaultPIDFile, "Path to the PID file written by the running server")
+		logLevel = fs.String("log-level", "", "Override LOG_LEVEL (debug, info, warn, error)")
+		listen   = fs.String("listen", "", "Override LISTEN_ADDR used by the HTTP server")
+		envs     envOverrides
+	)
+	fs.Var(&envs, "env", "Set additional environment variables (KEY=VALUE). May be specified multiple times.")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+
+	if err := cli.ApplyEnvOverrides(envs); err != nil {
+		return err
+	}
+
+	if *listen != "" {
+		if err := os.Setenv("LISTEN_ADDR", *listen); err != nil {
+			return fmt.Errorf("set LISTEN_ADDR: %w", err)
+		}
+	}
+	if *logLevel != "" {
+		if err := os.Setenv("LOG_LEVEL", *logLevel); err != nil {
+			return fmt.Errorf("set LOG_LEVEL: %w", err)
+		}
+	}
+
+	if err := ensurePIDDir(*pidFile); err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	setup, err := initializeServer(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		_ = setup.logManager.Close(closeCtx)
+	}()
+
+	logger := logging.WithComponent(setup.logger, "bootstrap")
+	slog.SetDefault(logger)
+
+	if err := cli.WritePID(*pidFile, os.Getpid()); err != nil {
+		return err
+	}
+	defer func() {
+		_ = cli.RemovePID(*pidFile)
+	}()
+
+	logger.Info("http server listening", "addr", setup.httpServer.Addr, "auth_mode", setup.authMode)
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		if err := setup.httpServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("graceful shutdown failed", "error", err)
+		}
+	}()
+
+	if err := setup.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	logger.Info("server stopped")
+	return nil
+}
+
+func runStop(args []string) error {
+	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), `Usage: k0rdent-mcp stop [flags]
+
+Stops the MCP server referenced by the PID file.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+
+	pidFile := fs.String("pid-file", defaultPIDFile, "Path to the PID file created by the running server")
+	timeout := fs.Duration("timeout", 10*time.Second, "Maximum time to wait for the server to stop")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+
+	pid, err := cli.ReadPID(*pidFile)
+	if err != nil {
+		return err
+	}
+
+	if err := cli.SignalProcess(pid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			_ = cli.RemovePID(*pidFile)
+			return nil
+		}
+		return err
+	}
+
+	if err := cli.WaitForExit(pid, *timeout); err != nil {
+		return err
+	}
+
+	return cli.RemovePID(*pidFile)
+}
+
+type serverSetup struct {
+	httpServer *http.Server
+	logger     *slog.Logger
+	logManager *logging.Manager
+	authMode   config.AuthMode
+}
+
+func initializeServer(ctx context.Context) (*serverSetup, error) {
 	bootstrapManager := logging.NewManager(logging.Options{Level: slog.LevelInfo})
 	bootstrapLogger := logging.WithComponent(bootstrapManager.Logger(), "bootstrap")
-	slog.SetDefault(bootstrapLogger)
 
 	buildInfo := version.Get()
 	bootstrapLogger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
 
 	settings, err := config.NewLoader(bootstrapLogger).Load(ctx)
 	if err != nil {
-		bootstrapLogger.Error("failed to load configuration", "error", err)
-		os.Exit(1)
+		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		_ = bootstrapManager.Close(closeCtx)
+		return nil, err
 	}
 
-	options := logging.Options{Level: settings.Logging.Level}
+	logOptions := logging.Options{Level: settings.Logging.Level}
 	if settings.Logging.ExternalSinkEnabled {
-		options.Sink = logging.NewJSONSink(os.Stderr)
+		logOptions.Sink = logging.NewJSONSink(os.Stderr)
 	}
 
-	logManager := logging.NewManager(options)
-	defer func() { _ = logManager.Close(context.Background()) }()
-	_ = bootstrapManager.Close(context.Background())
+	logManager := logging.NewManager(logOptions)
+	closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+	defer cancel()
+	_ = bootstrapManager.Close(closeCtx)
 
 	logger := logging.WithComponent(logManager.Logger(), "bootstrap")
 	slog.SetDefault(logger)
 
-	if settings.Logging.ExternalSinkEnabled {
-		logger.Info("external logging sink enabled")
-	}
-
 	factory, err := kube.NewClientFactory(settings.RestConfig, logger)
 	if err != nil {
-		logger.Error("failed to initialize Kubernetes client factory", "error", err)
-		os.Exit(1)
+		_ = logManager.Close(context.Background())
+		return nil, err
 	}
 
 	rt, err := runtime.New(settings, factory, logger)
 	if err != nil {
-		logger.Error("failed to prepare runtime", "error", err)
-		os.Exit(1)
+		_ = logManager.Close(context.Background())
+		return nil, err
 	}
 
 	sessionOptions := func(ctx *mcpserver.SessionContext) (*mcp.ServerOptions, error) {
@@ -131,8 +326,8 @@ func main() {
 		Version: buildInfo.Version,
 	}, sessionOptions, sessionInitializer)
 	if err != nil {
-		logger.Error("failed to create MCP factory", "error", err)
-		os.Exit(1)
+		_ = logManager.Close(context.Background())
+		return nil, err
 	}
 
 	app, err := server.NewApp(server.Dependencies{
@@ -143,8 +338,8 @@ func main() {
 		Logger: logger,
 	})
 	if err != nil {
-		logger.Error("failed to configure HTTP server", "error", err)
-		os.Exit(1)
+		_ = logManager.Close(context.Background())
+		return nil, err
 	}
 
 	addr := os.Getenv("LISTEN_ADDR")
@@ -157,21 +352,18 @@ func main() {
 		Handler: app.Router(),
 	}
 
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
-		defer cancel()
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			logger.Error("graceful shutdown failed", "error", err)
-		}
-	}()
+	return &serverSetup{
+		httpServer: httpServer,
+		logManager: logManager,
+		logger:     logger,
+		authMode:   settings.AuthMode,
+	}, nil
+}
 
-	logger.Info("http server listening", "addr", addr, "auth_mode", settings.AuthMode)
-
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("http server error", "error", err)
-		os.Exit(1)
+func ensurePIDDir(pidFile string) error {
+	dir := filepath.Dir(pidFile)
+	if dir == "." {
+		return nil
 	}
-
-	logger.Info("server stopped")
+	return os.MkdirAll(dir, 0o755)
 }
