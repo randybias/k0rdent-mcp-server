@@ -1,0 +1,6 @@
+- [ ] T1 Audit `cmd/server/main.go` startup sequence and extract reusable initialization helpers.
+- [ ] T2 Implement CLI entry point with `start`/`stop` subcommands and shared usage text.
+- [ ] T3 Add `start` command behavior: apply `--env KEY=VALUE` overrides, configure log level, launch server, persist PID file.
+- [ ] T4 Add `stop` command behavior: read PID file, send graceful termination signal, wait for exit, remove PID file.
+- [ ] T5 Cover flag parsing + PID helpers with unit tests and refresh any developer docs/help text as needed.
+- [ ] T6 Run `openspec validate add-cli-lifecycle-commands --strict`.

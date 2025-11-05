@@ -1,0 +1,5 @@
+- [ ] T1 Establish logging framework abstraction (stdout JSON formatter, pluggable sink interface)
+- [ ] T2 Instrument configuration/loading/auth paths with structured log entries + tests
+- [ ] T3 Add HTTP/MCP request scoped logging (request IDs, session IDs) + middleware tests
+- [ ] T4 Instrument tool execution (namespaces/events/logging) with structured logs + tests
+- [ ] T5 Provide configuration toggles (env) for log level & external sink enablement + tests

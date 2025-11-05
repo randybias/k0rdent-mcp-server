@@ -1,0 +1,77 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
+)
+
+type namespacesTool struct {
+	session *runtime.Session
+}
+
+type namespaceListInput struct{}
+
+type namespaceListResult struct {
+	Namespaces []namespaceInfo `json:"namespaces"`
+}
+
+type namespaceInfo struct {
+	Name   string            `json:"name"`
+	Labels map[string]string `json:"labels,omitempty"`
+	Status string            `json:"status"`
+}
+
+func registerNamespaces(server *mcp.Server, session *runtime.Session) error {
+	tool := &namespacesTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0.namespaces.list",
+		Description: "List namespaces with their labels and phase status",
+	}, tool.handle)
+	return nil
+}
+
+func (t *namespacesTool) handle(ctx context.Context, req *mcp.CallToolRequest, _ namespaceListInput) (*mcp.CallToolResult, namespaceListResult, error) {
+	client := t.session.Clients.Kubernetes.CoreV1().Namespaces()
+	list, err := client.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, namespaceListResult{}, fmt.Errorf("list namespaces: %w", err)
+	}
+
+	filter := t.session.NamespaceFilter
+	out := namespaceListResult{
+		Namespaces: make([]namespaceInfo, 0, len(list.Items)),
+	}
+	for _, item := range list.Items {
+		if filter != nil && !filter.MatchString(item.Name) {
+			continue
+		}
+		out.Namespaces = append(out.Namespaces, namespaceInfo{
+			Name:   item.Name,
+			Labels: copyMap(item.Labels),
+			Status: string(item.Status.Phase),
+		})
+	}
+
+	sort.Slice(out.Namespaces, func(i, j int) bool {
+		return out.Namespaces[i].Name < out.Namespaces[j].Name
+	})
+
+	return nil, out, nil
+}
+
+func copyMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(in))
+	for k, v := range in {
+		cloned[k] = v
+	}
+	return cloned
+}

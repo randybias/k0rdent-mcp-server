@@ -1,0 +1,8 @@
+- [x] T1 Config loader (PATH/B64/TEXT + CONTEXT); discovery ping on start
+- [x] T2 MCP server (Streamable HTTP) + auth gate (DEV_ALLOW_ANY / OIDC_REQUIRED)
+- [x] T3 Namespaces tool + tests
+- [x] T4 Events list + subscription (prefer events.k8s.io/v1; fallback core/v1) + tests
+- [x] T5 Pod logs (snapshot/follow) + tests
+- [x] T6 k0rdent CRD list tools + tests
+- [x] T7 Graph snapshot + delta publisher (watchers) + tests
+- [x] T8 /healthz, version/build ldflags, Makefile targets
