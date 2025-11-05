@@ -1,0 +1,4 @@
+- [x] T1 Update CLI flag definitions to include --debug/-d toggle with precedence over --log-level/LOG_LEVEL.
+- [x] T2 Emit a warning when both --debug and --log-level are supplied.
+- [x] T3 Add unit tests covering debug flag parsing and precedence.
+- [x] T4 Update CLI help text and validate with `go test ./...` plus `openspec validate add-cli-debug-flag --strict`.

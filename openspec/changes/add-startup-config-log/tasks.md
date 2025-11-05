@@ -1,0 +1,4 @@
+- [x] T1 Identify all configuration data sources (settings, CLI flags, PID file) needed for the startup summary.
+- [x] T2 Emit a human-readable summary to STDOUT before logging and a structured log entry after logging initializes.
+- [x] T3 Update or add tests verifying the startup summaries (capture STDOUT and structured log output).
+- [x] T4 Run `go test ./...` and `openspec validate add-startup-config-log --strict`.

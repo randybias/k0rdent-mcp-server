@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -69,7 +70,7 @@ Usage:
   k0rdent-mcp stop [flags]
 
 Commands:
-  start   Launch the MCP server and write a PID file for lifecycle management.
+  start   Launch the MCP server and write a PID file for lifecycle management (use --debug to turn on debug logging).
   stop    Send a graceful termination signal to the running server referenced by the PID file.
 
 Use "k0rdent-mcp <command> --help" for more information about a command.
@@ -90,8 +91,29 @@ func (e *envOverrides) Set(value string) error {
 	return nil
 }
 
+type startFlagValues struct {
+	pidFile    *string
+	logLevel   *string
+	listen     *string
+	envs       envOverrides
+	debug      *bool
+	debugAlias *bool
+}
+
+func registerStartFlags(fs *flag.FlagSet) startFlagValues {
+	values := startFlagValues{}
+	values.pidFile = fs.String("pid-file", defaultPIDFile, "Path to the PID file written by the running server")
+	values.logLevel = fs.String("log-level", "", "Override LOG_LEVEL (debug, info, warn, error)")
+	values.listen = fs.String("listen", "", "Override LISTEN_ADDR used by the HTTP server")
+	fs.Var(&values.envs, "env", "Set additional environment variables (KEY=VALUE). May be specified multiple times.")
+	values.debug = fs.Bool("debug", false, "Enable debug logging (overrides --log-level/LOG_LEVEL)")
+	values.debugAlias = fs.Bool("d", false, "Alias for --debug")
+	return values
+}
+
 func runStart(args []string) error {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
+	values := registerStartFlags(fs)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), `Usage: k0rdent-mcp start [flags]
 
@@ -102,14 +124,6 @@ Flags:
 		fs.PrintDefaults()
 	}
 
-	var (
-		pidFile  = fs.String("pid-file", defaultPIDFile, "Path to the PID file written by the running server")
-		logLevel = fs.String("log-level", "", "Override LOG_LEVEL (debug, info, warn, error)")
-		listen   = fs.String("listen", "", "Override LISTEN_ADDR used by the HTTP server")
-		envs     envOverrides
-	)
-	fs.Var(&envs, "env", "Set additional environment variables (KEY=VALUE). May be specified multiple times.")
-
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -117,22 +131,28 @@ Flags:
 		return err
 	}
 
-	if err := cli.ApplyEnvOverrides(envs); err != nil {
+	if err := cli.ApplyEnvOverrides([]string(values.envs)); err != nil {
 		return err
 	}
 
-	if *listen != "" {
-		if err := os.Setenv("LISTEN_ADDR", *listen); err != nil {
+	if *values.listen != "" {
+		if err := os.Setenv("LISTEN_ADDR", *values.listen); err != nil {
 			return fmt.Errorf("set LISTEN_ADDR: %w", err)
 		}
 	}
-	if *logLevel != "" {
-		if err := os.Setenv("LOG_LEVEL", *logLevel); err != nil {
-			return fmt.Errorf("set LOG_LEVEL: %w", err)
-		}
+
+	debugEnabled := false
+	if values.debug != nil && *values.debug {
+		debugEnabled = true
+	}
+	if values.debugAlias != nil && *values.debugAlias {
+		debugEnabled = true
+	}
+	if err := applyLogLevelFlags(debugEnabled, *values.logLevel, os.Stderr); err != nil {
+		return err
 	}
 
-	if err := ensurePIDDir(*pidFile); err != nil {
+	if err := ensurePIDDir(*values.pidFile); err != nil {
 		return err
 	}
 
@@ -152,12 +172,15 @@ Flags:
 	logger := logging.WithComponent(setup.logger, "bootstrap")
 	slog.SetDefault(logger)
 
-	if err := cli.WritePID(*pidFile, os.Getpid()); err != nil {
+	if err := cli.WritePID(*values.pidFile, os.Getpid()); err != nil {
 		return err
 	}
 	defer func() {
-		_ = cli.RemovePID(*pidFile)
+		_ = cli.RemovePID(*values.pidFile)
 	}()
+
+	printStartupSummary(os.Stdout, setup.settings, setup.httpServer.Addr, *values.pidFile)
+	logStartupConfiguration(logger, setup.settings, setup.httpServer.Addr, *values.pidFile)
 
 	logger.Info("http server listening", "addr", setup.httpServer.Addr, "auth_mode", setup.authMode)
 
@@ -225,6 +248,7 @@ type serverSetup struct {
 	logger     *slog.Logger
 	logManager *logging.Manager
 	authMode   config.AuthMode
+	settings   *config.Settings
 }
 
 func initializeServer(ctx context.Context) (*serverSetup, error) {
@@ -357,6 +381,7 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 		logManager: logManager,
 		logger:     logger,
 		authMode:   settings.AuthMode,
+		settings:   settings,
 	}, nil
 }
 
@@ -366,4 +391,69 @@ func ensurePIDDir(pidFile string) error {
 		return nil
 	}
 	return os.MkdirAll(dir, 0o755)
+}
+
+func applyLogLevelFlags(debug bool, logLevelFlag string, stderr io.Writer) error {
+	if debug {
+		if logLevelFlag != "" && stderr != nil {
+			fmt.Fprintln(stderr, "warning: --debug overrides --log-level; using DEBUG log level")
+		}
+		return os.Setenv("LOG_LEVEL", "DEBUG")
+	}
+	if logLevelFlag != "" {
+		return os.Setenv("LOG_LEVEL", logLevelFlag)
+	}
+	return nil
+}
+
+func printStartupSummary(w io.Writer, settings *config.Settings, listenAddr, pidFile string) {
+	if w == nil || settings == nil {
+		return
+	}
+
+	namespaceFilter := "<none>"
+	if settings.NamespaceFilter != nil {
+		namespaceFilter = settings.NamespaceFilter.String()
+	}
+
+	level := settings.Logging.Level.String()
+
+	fmt.Fprintln(w, "========================================")
+	fmt.Fprintln(w, "K0rdent MCP Server Startup Summary")
+	fmt.Fprintf(w, "  Listen Address:       %s\n", listenAddr)
+	fmt.Fprintf(w, "  Auth Mode:            %s\n", settings.AuthMode)
+	fmt.Fprintf(w, "  Kubeconfig Source:    %s\n", settings.Source)
+	fmt.Fprintf(w, "  Kubeconfig Context:   %s\n", settings.ContextName)
+	fmt.Fprintf(w, "  Namespace Filter:     %s\n", namespaceFilter)
+	fmt.Fprintf(w, "  Log Level:            %s\n", level)
+	fmt.Fprintf(w, "  External Sink:        %t\n", settings.Logging.ExternalSinkEnabled)
+	fmt.Fprintf(w, "  PID File:             %s\n", pidFile)
+	fmt.Fprintln(w, "========================================")
+}
+
+func logStartupConfiguration(logger *slog.Logger, settings *config.Settings, listenAddr, pidFile string) {
+	if logger == nil || settings == nil {
+		return
+	}
+	logger.Info("startup configuration", startupSummaryAttributes(settings, listenAddr, pidFile)...)
+}
+
+func startupSummaryAttributes(settings *config.Settings, listenAddr, pidFile string) []any {
+	namespaceFilter := ""
+	if settings.NamespaceFilter != nil {
+		namespaceFilter = settings.NamespaceFilter.String()
+	}
+
+	level := settings.Logging.Level.String()
+
+	return []any{
+		"listen_addr", listenAddr,
+		"auth_mode", settings.AuthMode,
+		"kubeconfig_source", settings.Source,
+		"kubeconfig_context", settings.ContextName,
+		"namespace_filter", namespaceFilter,
+		"log_level", level,
+		"external_sink_enabled", settings.Logging.ExternalSinkEnabled,
+		"pid_file", pidFile,
+	}
 }
