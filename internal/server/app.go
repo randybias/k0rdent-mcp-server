@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,6 +16,7 @@ import (
 	"github.com/k0rdent/mcp-k0rdent-server/internal/auth"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/config"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/kube"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/mcpserver"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/version"
 )
@@ -22,15 +24,15 @@ import (
 type contextKey string
 
 const (
-	bearerTokenKey contextKey = "bearer-token"
+	bearerTokenKey  contextKey = "bearer-token"
 	serverHolderKey contextKey = "mcp-server-holder"
 )
 
 // Dependencies contains the external components required by the App.
 type Dependencies struct {
-	Settings     *config.Settings
+	Settings      *config.Settings
 	ClientFactory *kube.ClientFactory
-	MCPFactory   *mcpserver.Factory
+	MCPFactory    *mcpserver.Factory
 }
 
 // Options configure HTTP surface behavior.
@@ -74,7 +76,7 @@ func NewApp(deps Dependencies, opts Options) (*App, error) {
 
 	app := &App{
 		deps:          deps,
-		gate:          auth.NewGate(deps.Settings.AuthMode),
+		gate:          auth.NewGate(deps.Settings.AuthMode, logger),
 		logger:        logger,
 		streamHandler: nil, // assigned below
 	}
@@ -105,6 +107,7 @@ func NewApp(deps Dependencies, opts Options) (*App, error) {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
+	router.Use(app.requestLogging)
 
 	router.Method(http.MethodGet, healthPath, http.HandlerFunc(app.handleHealth))
 	router.Method(http.MethodHead, healthPath, http.HandlerFunc(app.handleHealth))
@@ -144,13 +147,30 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleStream(w http.ResponseWriter, r *http.Request) {
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	start := time.Now()
+
+	ctx := logging.WithRequestID(r.Context(), middleware.GetReqID(r.Context()))
+	if sessionID := r.Header.Get("Mcp-Session-Id"); sessionID != "" {
+		ctx = logging.WithSessionID(ctx, sessionID)
+	}
+	r = r.WithContext(ctx)
+
+	reqLogger := logging.WithContext(ctx, a.logger)
+	method := r.Method
+	path := r.URL.Path
+
+	reqLogger.Debug("handling mcp request", "method", method, "path", path)
+
 	token, err := a.gate.ExtractBearer(r)
 	if err != nil {
+		reqLogger.Warn("authorization failed", "method", method, "path", path, "error", err)
 		status := http.StatusBadRequest
 		if errors.Is(err, auth.ErrUnauthorized) {
 			status = http.StatusUnauthorized
 		}
-		http.Error(w, err.Error(), status)
+		http.Error(recorder, err.Error(), status)
+		logRequestCompleted(ctx, reqLogger, recorder, start, method, path)
 		return
 	}
 
@@ -160,19 +180,22 @@ func (a *App) handleStream(w http.ResponseWriter, r *http.Request) {
 		logger:  a.logger,
 	}
 
-	ctx := context.WithValue(r.Context(), bearerTokenKey, token)
+	ctx = context.WithValue(r.Context(), bearerTokenKey, token)
 	ctx = context.WithValue(ctx, serverHolderKey, holder)
 	r = r.WithContext(ctx)
 
 	// Establish the session eagerly when the client hasn't provided an ID.
 	if r.Header.Get("Mcp-Session-Id") == "" {
 		if holder.serverInstance(ctx) == nil {
-			http.Error(w, "failed to initialize MCP session", http.StatusInternalServerError)
+			reqLogger.Error("failed to initialize MCP session", "method", method, "path", path)
+			http.Error(recorder, "failed to initialize MCP session", http.StatusInternalServerError)
+			logRequestCompleted(ctx, reqLogger, recorder, start, method, path)
 			return
 		}
 	}
 
-	a.streamHandler.ServeHTTP(w, r)
+	a.streamHandler.ServeHTTP(recorder, r)
+	logRequestCompleted(ctx, reqLogger, recorder, start, method, path)
 }
 
 type sessionHolder struct {
@@ -208,4 +231,44 @@ func (h *sessionHolder) serverInstance(ctx context.Context) *mcp.Server {
 		h.server = server
 	})
 	return h.server
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (a *App) requestLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if next == nil {
+			return
+		}
+		ctx := logging.WithRequestID(r.Context(), middleware.GetReqID(r.Context()))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func logRequestCompleted(ctx context.Context, logger *slog.Logger, recorder *statusRecorder, start time.Time, method, path string) {
+	if logger == nil {
+		return
+	}
+
+	attrs := []any{
+		"method", method,
+		"path", path,
+		"status", recorder.status,
+		"duration_ms", time.Since(start).Milliseconds(),
+	}
+	if reqID := logging.RequestID(ctx); reqID != "" {
+		attrs = append(attrs, "request_id", reqID)
+	}
+	if sessionID := logging.SessionID(ctx); sessionID != "" {
+		attrs = append(attrs, "session_id", sessionID)
+	}
+	logger.Info("handled mcp request", attrs...)
 }

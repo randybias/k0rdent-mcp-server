@@ -1,12 +1,20 @@
 package kube
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"sync"
 	"testing"
+	"time"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 )
 
 func TestRESTConfigForToken(t *testing.T) {
@@ -17,7 +25,7 @@ func TestRESTConfigForToken(t *testing.T) {
 		Password:    "pass",
 	}
 
-	factory, err := NewClientFactory(base)
+	factory, err := NewClientFactory(base, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewClientFactory returned error: %v", err)
 	}
@@ -53,7 +61,7 @@ func TestKubernetesClientDelegatesToConstructor(t *testing.T) {
 		Host: "https://example.com",
 	}
 
-	factory, err := NewClientFactory(base)
+	factory, err := NewClientFactory(base, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewClientFactory returned error: %v", err)
 	}
@@ -80,7 +88,7 @@ func TestDynamicClientDelegatesToConstructor(t *testing.T) {
 		Host: "https://example.com",
 	}
 
-	factory, err := NewClientFactory(base)
+	factory, err := NewClientFactory(base, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewClientFactory returned error: %v", err)
 	}
@@ -99,5 +107,74 @@ func TestDynamicClientDelegatesToConstructor(t *testing.T) {
 
 	if capturedHost != "https://example.com" {
 		t.Fatalf("expected constructor to receive copied config, got host %q", capturedHost)
+	}
+}
+
+func TestFactoryEmitsLogs(t *testing.T) {
+	var buf bytes.Buffer
+	sink := &recordingSink{}
+	mgr := logging.NewManager(logging.Options{
+		Level:       slog.LevelDebug,
+		Sink:        sink,
+		Destination: &buf,
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = mgr.Close(ctx)
+	})
+
+	base := &rest.Config{Host: "https://example.com"}
+	factory, err := NewClientFactory(base, mgr.Logger())
+	if err != nil {
+		t.Fatalf("NewClientFactory error: %v", err)
+	}
+
+	var once sync.Once
+	factory.WithConstructors(func(cfg *rest.Config) (kubernetes.Interface, error) {
+		once.Do(func() {
+			if cfg.BearerToken != "token" {
+				t.Errorf("expected token override, got %q", cfg.BearerToken)
+			}
+		})
+		return nil, errors.New("kube fail")
+	}, func(_ *rest.Config) (dynamic.Interface, error) {
+		return nil, errors.New("dynamic fail")
+	})
+
+	_, _ = factory.KubernetesClient("token")
+	_, _ = factory.DynamicClient("")
+
+	waitUntil(func() bool { return sink.Len() >= 2 }, 500*time.Millisecond)
+	if sink.Len() == 0 {
+		t.Fatalf("expected sink to capture logs")
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(`"component":"kube.clientfactory"`)) {
+		t.Fatalf("expected stdout log to include component attribute, got %s", buf.String())
+	}
+}
+
+type recordingSink struct {
+	mu      sync.Mutex
+	entries []logging.Entry
+}
+
+func (s *recordingSink) Write(_ context.Context, e logging.Entry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, e)
+	return nil
+}
+
+func (s *recordingSink) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+func waitUntil(fn func() bool, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for !fn() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
 }

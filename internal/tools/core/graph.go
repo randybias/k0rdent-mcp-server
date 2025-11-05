@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/k0rdent/api"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
@@ -124,9 +125,18 @@ func (m *GraphManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 		return err
 	}
 
+	ctx, logger := toolContext(ctx, m.session, "k0.graph.subscribe", "tool.graph")
+	logger = logger.With(
+		"uri", req.Params.URI,
+		"namespaces", mapKeys(filter.namespaces),
+		"kinds", mapKeys(filter.kinds),
+	)
+	logger.Info("subscribing to graph stream")
+
 	m.mu.Lock()
 	if m.session == nil || m.session.Clients.Dynamic == nil || m.server == nil {
 		m.mu.Unlock()
+		logger.Error("graph manager not bound to session")
 		return fmt.Errorf("graph manager not bound to session")
 	}
 	key := fmt.Sprintf("%s:%s", req.Session.ID(), req.Params.URI)
@@ -135,6 +145,7 @@ func (m *GraphManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 		if err := m.startWatchersLocked(); err != nil {
 			delete(m.subscribers, key)
 			m.mu.Unlock()
+			logger.Error("failed to start graph watchers", "error", err)
 			return err
 		}
 		m.watchersRun = true
@@ -143,9 +154,11 @@ func (m *GraphManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 
 	snapshot, err := m.Snapshot(ctx, filter)
 	if err != nil {
+		logger.Error("failed to generate initial graph snapshot", "error", err)
 		return err
 	}
 	m.sendDelta(graphDelta{Action: "snapshot", Nodes: snapshot.Nodes, Edges: snapshot.Edges}, filter, req.Params.URI)
+	logger.Info("graph subscription active", "nodes", len(snapshot.Nodes), "edges", len(snapshot.Edges))
 	return nil
 }
 
@@ -153,6 +166,10 @@ func (m *GraphManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	if m == nil {
 		return fmt.Errorf("graph manager not configured")
 	}
+	ctx, logger := toolContext(ctx, m.session, "k0.graph.unsubscribe", "tool.graph")
+	logger = logger.With("uri", req.Params.URI)
+	logger.Info("unsubscribing from graph stream")
+
 	m.mu.Lock()
 	key := fmt.Sprintf("%s:%s", req.Session.ID(), req.Params.URI)
 	delete(m.subscribers, key)
@@ -167,6 +184,11 @@ func (m *GraphManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	if stopWatchers && cancel != nil {
 		cancel()
 	}
+	if stopWatchers {
+		logger.Info("graph watchers stopped")
+	} else {
+		logger.Info("graph subscription canceled")
+	}
 	return nil
 }
 
@@ -174,16 +196,32 @@ func (m *GraphManager) Snapshot(ctx context.Context, filter graphFilter) (GraphS
 	if m.session == nil || m.session.Clients.Dynamic == nil {
 		return GraphSnapshot{}, errors.New("graph manager not bound")
 	}
+	logger := logging.WithComponent(logging.WithContext(ctx, m.session.Logger), "tool.graph")
+	if logger != nil {
+		logger.Info("building graph snapshot",
+			"namespaces", mapKeys(filter.namespaces),
+			"kinds", mapKeys(filter.kinds),
+		)
+	}
 	st, err := api.ListServiceTemplates(ctx, m.session.Clients.Dynamic)
 	if err != nil {
+		if logger != nil {
+			logger.Error("list service templates failed", "error", err)
+		}
 		return GraphSnapshot{}, err
 	}
 	cds, err := api.ListClusterDeployments(ctx, m.session.Clients.Dynamic, "")
 	if err != nil {
+		if logger != nil {
+			logger.Error("list cluster deployments failed", "error", err)
+		}
 		return GraphSnapshot{}, err
 	}
 	mcs, err := api.ListMultiClusterServices(ctx, m.session.Clients.Dynamic, "")
 	if err != nil {
+		if logger != nil {
+			logger.Error("list multi-cluster services failed", "error", err)
+		}
 		return GraphSnapshot{}, err
 	}
 
@@ -739,6 +777,12 @@ func registerGraph(server *mcp.Server, session *runtime.Session, manager *GraphM
 }
 
 func (t *graphTool) snapshot(ctx context.Context, req *mcp.CallToolRequest, input graphSnapshotInput) (*mcp.CallToolResult, graphSnapshotResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.manager.session, name, "tool.graph")
+	logger = logger.With("tool", name, "namespace", input.Namespace, "kinds", input.Kinds)
+	start := time.Now()
+	logger.Info("handling graph snapshot request")
+
 	filter := graphFilter{}
 	if input.Namespace != "" {
 		filter.namespaces = map[string]struct{}{input.Namespace: {}}
@@ -754,7 +798,20 @@ func (t *graphTool) snapshot(ctx context.Context, req *mcp.CallToolRequest, inpu
 	}
 	snapshot, err := t.manager.Snapshot(ctx, filter)
 	if err != nil {
+		logger.Error("graph snapshot failed", "tool", name, "error", err)
 		return nil, graphSnapshotResult{}, err
 	}
+	logger.Info("graph snapshot ready", "tool", name, "nodes", len(snapshot.Nodes), "edges", len(snapshot.Edges), "duration_ms", time.Since(start).Milliseconds())
 	return nil, graphSnapshotResult{Nodes: snapshot.Nodes, Edges: snapshot.Edges}, nil
+}
+
+func mapKeys(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	return out
 }

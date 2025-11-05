@@ -8,11 +8,13 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/apimachinery/pkg/watch"
 
 	eventsprovider "github.com/k0rdent/mcp-k0rdent-server/internal/kube/events"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
@@ -66,13 +68,20 @@ func (m *EventManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 		return err
 	}
 
+	ctx = logging.WithNamespace(ctx, namespace)
+	ctx, logger := toolContext(ctx, m.session, "k0.events.subscribe", "tool.events")
+	logger = logger.With("namespace", namespace)
+	logger.Info("subscribing to namespace events")
+
 	m.mu.Lock()
 	if m.session == nil || m.session.Events == nil || m.server == nil {
 		m.mu.Unlock()
+		logger.Error("event manager not bound to session")
 		return fmt.Errorf("event manager not bound to session")
 	}
 	if _, exists := m.subscriptions[namespace]; exists {
 		m.mu.Unlock()
+		logger.Debug("event subscription already active")
 		return nil
 	}
 
@@ -81,6 +90,7 @@ func (m *EventManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 	if err != nil {
 		cancel()
 		m.mu.Unlock()
+		logger.Error("failed to start event watch", "error", err)
 		return fmt.Errorf("start event watch: %w", err)
 	}
 
@@ -99,6 +109,7 @@ func (m *EventManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 	// Send an initial snapshot so subscribers have immediate context.
 	go m.sendInitialSnapshot(watchCtx, server, namespace, provider)
 
+	logger.Info("event subscription started")
 	return nil
 }
 
@@ -111,6 +122,11 @@ func (m *EventManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	if err != nil {
 		return err
 	}
+
+	ctx = logging.WithNamespace(ctx, namespace)
+	ctx, logger := toolContext(ctx, m.session, "k0.events.unsubscribe", "tool.events")
+	logger = logger.With("namespace", namespace)
+	logger.Info("unsubscribing from namespace events")
 
 	m.mu.Lock()
 	sub, ok := m.subscriptions[namespace]
@@ -125,6 +141,7 @@ func (m *EventManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 
 	sub.cancel()
 	<-sub.done
+	logger.Info("event subscription terminated")
 	return nil
 }
 
@@ -262,6 +279,10 @@ func (t *eventsTool) list(ctx context.Context, req *mcp.CallToolRequest, input e
 		return nil, eventsListResult{}, fmt.Errorf("namespace is required")
 	}
 
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.events")
+	start := time.Now()
+
 	options := eventsprovider.ListOptions{
 		Types:        input.Types,
 		ForKind:      input.ForKind,
@@ -270,10 +291,28 @@ func (t *eventsTool) list(ctx context.Context, req *mcp.CallToolRequest, input e
 		Limit:        input.Limit,
 	}
 
+	logger.Debug("listing namespace events",
+		"tool", name,
+		"namespace", input.Namespace,
+		"types", input.Types,
+		"for_kind", input.ForKind,
+		"for_name", input.ForName,
+		"since_seconds", derefInt64(input.SinceSeconds),
+		"limit", derefInt(input.Limit),
+	)
+
 	events, err := t.session.Events.List(ctx, input.Namespace, options)
 	if err != nil {
+		logger.Error("list events failed", "tool", name, "namespace", input.Namespace, "error", err)
 		return nil, eventsListResult{}, err
 	}
+
+	logger.Info("events listed",
+		"tool", name,
+		"namespace", input.Namespace,
+		"count", len(events),
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
 
 	return nil, eventsListResult{Events: events}, nil
 }
@@ -301,4 +340,18 @@ func parseEventsURI(raw string) (string, error) {
 
 func buildEventsURI(namespace string) string {
 	return fmt.Sprintf("%s://%s/%s", eventsScheme, eventsHost, namespace)
+}
+
+func derefInt64(v *int64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func derefInt(v *int) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

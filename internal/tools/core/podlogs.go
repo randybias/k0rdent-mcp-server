@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	logsprovider "github.com/k0rdent/mcp-k0rdent-server/internal/kube/logs"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
@@ -73,7 +75,16 @@ func (m *PodLogManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest
 	if err != nil {
 		return err
 	}
+	ctx = logging.WithNamespace(ctx, key.Namespace)
+	ctx, logger := toolContext(ctx, m.session, "k0.podLogs.follow", "tool.podlogs")
+	logger = logger.With("tool", "k0.podLogs.follow", "pod", key.Pod, "container", key.Container, "uri", uri)
+	logger.Info("subscribing to pod log stream")
 	_, err = m.ensureStream(uri, key)
+	if err != nil {
+		logger.Error("failed to subscribe to pod logs", "error", err)
+		return err
+	}
+	logger.Info("pod log stream active")
 	return err
 }
 
@@ -82,10 +93,15 @@ func (m *PodLogManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeReq
 	if m == nil {
 		return fmt.Errorf("pod log manager not configured")
 	}
-	_, uri, err := parsePodLogURI(req.Params.URI)
+	key, uri, err := parsePodLogURI(req.Params.URI)
 	if err != nil {
 		return err
 	}
+
+	ctx = logging.WithNamespace(ctx, key.Namespace)
+	ctx, logger := toolContext(ctx, m.session, "k0.podLogs.unfollow", "tool.podlogs")
+	logger = logger.With("tool", "k0.podLogs.unfollow", "pod", key.Pod, "container", key.Container, "uri", uri)
+	logger.Info("unsubscribing from pod log stream")
 
 	m.mu.Lock()
 	sub, ok := m.streams[uri]
@@ -100,14 +116,32 @@ func (m *PodLogManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeReq
 
 	sub.cancel()
 	<-sub.done
+	logger.Info("pod log stream terminated")
 	return nil
 }
 
 // EnsureStream starts a stream for the given configuration if one is not already running.
 func (m *PodLogManager) EnsureStream(key podLogKey) (string, error) {
+	var logger *slog.Logger
+	if m != nil && m.session != nil && m.session.Logger != nil {
+		logger = logging.WithComponent(m.session.Logger, "tool.podlogs")
+		logger = logger.With(
+			"tool", "k0.podLogs.follow",
+			"namespace", key.Namespace,
+			"pod", key.Pod,
+			"container", key.Container,
+		)
+		logger.Info("ensuring pod log stream")
+	}
 	uri := buildURIFromKey(key)
 	if _, err := m.ensureStream(uri, key); err != nil {
+		if logger != nil {
+			logger.Error("failed to ensure pod log stream", "error", err)
+		}
 		return "", err
+	}
+	if logger != nil {
+		logger.Info("pod log stream ensured", "uri", uri)
 	}
 	return uri, nil
 }
@@ -273,6 +307,21 @@ func (t *podLogsTool) get(ctx context.Context, req *mcp.CallToolRequest, input p
 		return nil, podLogsResult{}, fmt.Errorf("pod is required")
 	}
 
+	name := toolName(req)
+	ctx = logging.WithNamespace(ctx, input.Namespace)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.podlogs")
+	logger = logger.With(
+		"tool", name,
+		"pod", input.Pod,
+		"container", input.Container,
+		"follow", input.Follow,
+		"previous", input.Previous,
+		"tail_lines", derefInt(input.TailLines),
+		"since_seconds", derefInt64(input.SinceSeconds),
+	)
+	start := time.Now()
+	logger.Info("retrieving pod logs")
+
 	opts := logsprovider.Options{
 		Container: input.Container,
 		Previous:  input.Previous,
@@ -286,12 +335,14 @@ func (t *podLogsTool) get(ctx context.Context, req *mcp.CallToolRequest, input p
 
 	logs, err := t.session.Logs.Get(ctx, input.Namespace, input.Pod, opts)
 	if err != nil {
+		logger.Error("failed to get pod logs", "tool", name, "error", err)
 		return nil, podLogsResult{}, err
 	}
 
 	result := podLogsResult{Logs: logs}
 	if input.Follow {
 		if t.manager == nil {
+			logger.Error("follow requested but manager not available", "tool", name)
 			return nil, podLogsResult{}, fmt.Errorf("follow not available")
 		}
 		key := podLogKey{
@@ -304,11 +355,20 @@ func (t *podLogsTool) get(ctx context.Context, req *mcp.CallToolRequest, input p
 		}
 		followURI, err := t.manager.EnsureStream(key)
 		if err != nil {
+			logger.Error("failed to ensure follow stream", "tool", name, "error", err)
 			return nil, podLogsResult{}, err
 		}
 		result.FollowURI = followURI
 		result.Following = true
+		logger.Info("follow stream prepared", "tool", name, "follow_uri", followURI)
 	}
+
+	logger.Info("pod logs retrieved",
+		"tool", name,
+		"bytes", len(result.Logs),
+		"following", result.Following,
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
 
 	return nil, result, nil
 }

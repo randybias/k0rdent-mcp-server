@@ -1,14 +1,20 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/config"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/mcpserver"
 )
 
@@ -58,10 +64,23 @@ func TestHandleHealth(t *testing.T) {
 }
 
 func TestHandleStreamUnauthorized(t *testing.T) {
+	var buf bytes.Buffer
+	sink := &recordingSink{}
+	mgr := logging.NewManager(logging.Options{
+		Level:       slog.LevelDebug,
+		Sink:        sink,
+		Destination: &buf,
+	})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = mgr.Close(ctx)
+	})
+
 	app, err := NewApp(Dependencies{
 		Settings:   &config.Settings{AuthMode: config.AuthModeOIDCRequired},
 		MCPFactory: newTestFactory(t),
-	}, Options{})
+	}, Options{Logger: mgr.Logger()})
 	if err != nil {
 		t.Fatalf("NewApp returned error: %v", err)
 	}
@@ -74,4 +93,82 @@ func TestHandleStreamUnauthorized(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rr.Code)
 	}
+
+	deadline := time.Now().Add(time.Second)
+	var (
+		entry logging.Entry
+		ok    bool
+	)
+	for time.Now().Before(deadline) {
+		if entry, ok = sink.Find("handled mcp request"); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ok {
+		t.Fatalf("expected handled mcp request log, captured entries: %v\nstdout: %s", sink.Messages(), buf.String())
+	}
+	statusAttr, exists := entry.Attributes["status"]
+	if !exists {
+		t.Fatalf("expected status attribute, got %#v", entry.Attributes)
+	}
+	var status int
+	switch v := statusAttr.(type) {
+	case int:
+		status = v
+	case int64:
+		status = int(v)
+	case float64:
+		status = int(v)
+	default:
+		t.Fatalf("unexpected status attribute type %T", statusAttr)
+	}
+	if status != http.StatusUnauthorized {
+		t.Fatalf("expected status attribute 401, got %#v", statusAttr)
+	}
+	if entry.Attributes["duration_ms"] == nil {
+		t.Fatalf("expected duration_ms attribute")
+	}
+	if _, ok := entry.Attributes["request_id"]; !ok {
+		t.Fatalf("expected request_id attribute in log entry, got %#v", entry.Attributes)
+	}
+}
+
+type recordingSink struct {
+	mu      sync.Mutex
+	entries []logging.Entry
+}
+
+func (s *recordingSink) Write(_ context.Context, e logging.Entry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, e)
+	return nil
+}
+
+func (s *recordingSink) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+func (s *recordingSink) Find(msg string) (logging.Entry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, entry := range s.entries {
+		if entry.Message == msg {
+			return entry, true
+		}
+	}
+	return logging.Entry{}, false
+}
+
+func (s *recordingSink) Messages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msgs := make([]string, 0, len(s.entries))
+	for _, entry := range s.entries {
+		msgs = append(msgs, entry.Message)
+	}
+	return msgs
 }

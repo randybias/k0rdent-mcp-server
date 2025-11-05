@@ -14,6 +14,7 @@ import (
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/config"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/kube"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/mcpserver"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/server"
@@ -30,21 +31,36 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-	slog.SetDefault(logger)
+	bootstrapManager := logging.NewManager(logging.Options{Level: slog.LevelInfo})
+	bootstrapLogger := logging.WithComponent(bootstrapManager.Logger(), "bootstrap")
+	slog.SetDefault(bootstrapLogger)
 
 	buildInfo := version.Get()
-	logger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
+	bootstrapLogger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
 
-	settings, err := config.NewLoader().Load(ctx)
+	settings, err := config.NewLoader(bootstrapLogger).Load(ctx)
 	if err != nil {
-		logger.Error("failed to load configuration", "error", err)
+		bootstrapLogger.Error("failed to load configuration", "error", err)
 		os.Exit(1)
 	}
 
-	factory, err := kube.NewClientFactory(settings.RestConfig)
+	options := logging.Options{Level: settings.Logging.Level}
+	if settings.Logging.ExternalSinkEnabled {
+		options.Sink = logging.NewJSONSink(os.Stderr)
+	}
+
+	logManager := logging.NewManager(options)
+	defer func() { _ = logManager.Close(context.Background()) }()
+	_ = bootstrapManager.Close(context.Background())
+
+	logger := logging.WithComponent(logManager.Logger(), "bootstrap")
+	slog.SetDefault(logger)
+
+	if settings.Logging.ExternalSinkEnabled {
+		logger.Info("external logging sink enabled")
+	}
+
+	factory, err := kube.NewClientFactory(settings.RestConfig, logger)
 	if err != nil {
 		logger.Error("failed to initialize Kubernetes client factory", "error", err)
 		os.Exit(1)

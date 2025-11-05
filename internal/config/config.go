@@ -5,13 +5,17 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"regexp"
+	"strings"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 )
 
 const (
@@ -21,6 +25,8 @@ const (
 	envContext        = "K0RDENT_MGMT_CONTEXT"
 	envNamespaceExpr  = "K0RDENT_NAMESPACE_FILTER"
 	envAuthMode       = "AUTH_MODE"
+	envLogLevel       = "LOG_LEVEL"
+	envLogSinkEnabled = "LOG_EXTERNAL_SINK_ENABLED"
 )
 
 // AuthMode determines how incoming requests are authenticated.
@@ -55,6 +61,13 @@ type Settings struct {
 	AuthMode        AuthMode
 	Source          SourceType
 	RawConfig       *clientcmdapi.Config
+	Logging         LoggingSettings
+}
+
+// LoggingSettings describe how structured logging is configured.
+type LoggingSettings struct {
+	Level               slog.Level
+	ExternalSinkEnabled bool
 }
 
 // Loader loads runtime configuration from the environment and validates cluster access.
@@ -62,14 +75,20 @@ type Loader struct {
 	envLookup func(string) (string, bool)
 	readFile  func(string) ([]byte, error)
 	ping      func(context.Context, *rest.Config) error
+
+	logger *slog.Logger
 }
 
 // NewLoader creates a Loader that reads from the real environment and performs a live discovery ping.
-func NewLoader() *Loader {
+func NewLoader(logger *slog.Logger) *Loader {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Loader{
 		envLookup: os.LookupEnv,
 		readFile:  os.ReadFile,
 		ping:      defaultDiscoveryPing,
+		logger:    logging.WithComponent(logger, "config.loader"),
 	}
 }
 
@@ -84,31 +103,41 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 	if l.ping == nil {
 		l.ping = defaultDiscoveryPing
 	}
+	log := logging.WithContext(ctx, l.logger)
+	log.Info("loading configuration")
 
 	source, kubeconfigBytes, err := l.readKubeconfig()
 	if err != nil {
+		log.Error("failed to read kubeconfig source", "error", err)
 		return nil, err
 	}
 
 	cfg, err := clientcmd.Load(kubeconfigBytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse kubeconfig: %w", err)
+		err = fmt.Errorf("parse kubeconfig: %w", err)
+		log.Error("failed to parse kubeconfig", "error", err)
+		return nil, err
 	}
 
 	contextName, err := l.resolveContext(cfg)
 	if err != nil {
+		log.Error("failed to resolve context", "error", err)
 		return nil, err
 	}
 
 	namespaceFilter, err := l.compileNamespaceFilter()
 	if err != nil {
+		log.Error("failed to compile namespace filter", "error", err)
 		return nil, err
 	}
 
 	authMode, err := l.resolveAuthMode()
 	if err != nil {
+		log.Error("failed to resolve auth mode", "error", err)
 		return nil, err
 	}
+
+	loggingSettings := l.resolveLogging(log)
 
 	overrides := &clientcmd.ConfigOverrides{
 		CurrentContext: contextName,
@@ -117,12 +146,21 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 
 	restCfg, err := clientConfig.ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("create kubernetes rest config: %w", err)
+		err = fmt.Errorf("create kubernetes rest config: %w", err)
+		log.Error("failed to create kubernetes rest config", "error", err)
+		return nil, err
 	}
 
 	if err := l.ping(ctx, restCfg); err != nil {
-		return nil, fmt.Errorf("kubernetes discovery ping failed: %w", err)
+		err = fmt.Errorf("kubernetes discovery ping failed: %w", err)
+		log.Error("kubernetes discovery ping failed", "error", err)
+		return nil, err
 	}
+
+	log.Info("configuration loaded",
+		"context", contextName,
+		"auth_mode", authMode,
+		"source", source)
 
 	return &Settings{
 		RestConfig:      restCfg,
@@ -131,6 +169,7 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 		AuthMode:        authMode,
 		Source:          source,
 		RawConfig:       cfg,
+		Logging:         loggingSettings,
 	}, nil
 }
 
@@ -218,6 +257,52 @@ func (l *Loader) resolveAuthMode() (AuthMode, error) {
 		return "", fmt.Errorf("invalid AUTH_MODE %q", value)
 	}
 	return mode, nil
+}
+
+func (l *Loader) resolveLogging(logger *slog.Logger) LoggingSettings {
+	settings := LoggingSettings{Level: slog.LevelInfo}
+
+	if raw, ok := l.envLookup(envLogLevel); ok && strings.TrimSpace(raw) != "" {
+		lvl, err := logging.ParseLevel(raw)
+		if err != nil {
+			if logger != nil {
+				logger.Warn("invalid LOG_LEVEL value; defaulting to INFO", "value", raw, "error", err)
+			}
+		} else {
+			settings.Level = lvl
+		}
+	}
+
+	if raw, ok := l.envLookup(envLogSinkEnabled); ok && strings.TrimSpace(raw) != "" {
+		enabled, err := parseBoolEnv(raw)
+		if err != nil {
+			if logger != nil {
+				logger.Warn("invalid LOG_EXTERNAL_SINK_ENABLED value", "value", raw)
+			}
+		} else {
+			settings.ExternalSinkEnabled = enabled
+		}
+	}
+
+	if logger != nil {
+		logger.Info("logging configuration resolved",
+			"level", settings.Level.String(),
+			"external_sink_enabled", settings.ExternalSinkEnabled,
+		)
+	}
+
+	return settings
+}
+
+func parseBoolEnv(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true, nil
+	case "0", "false", "f", "no", "n", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid boolean value %q", value)
+	}
 }
 
 func defaultDiscoveryPing(ctx context.Context, baseCfg *rest.Config) error {

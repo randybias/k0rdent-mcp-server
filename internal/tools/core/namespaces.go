@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,13 +38,26 @@ func registerNamespaces(server *mcp.Server, session *runtime.Session) error {
 }
 
 func (t *namespacesTool) handle(ctx context.Context, req *mcp.CallToolRequest, _ namespaceListInput) (*mcp.CallToolResult, namespaceListResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.namespaces")
+	start := time.Now()
+
 	client := t.session.Clients.Kubernetes.CoreV1().Namespaces()
 	list, err := client.List(ctx, metav1.ListOptions{})
 	if err != nil {
+		logger.Error("list namespaces failed", "tool", name, "error", err)
 		return nil, namespaceListResult{}, fmt.Errorf("list namespaces: %w", err)
 	}
 
 	filter := t.session.NamespaceFilter
+	if logger != nil {
+		if filter != nil {
+			logger.Debug("filtering namespaces", "tool", name, "filter", filter.String())
+		} else {
+			logger.Debug("no namespace filter applied", "tool", name)
+		}
+	}
+
 	out := namespaceListResult{
 		Namespaces: make([]namespaceInfo, 0, len(list.Items)),
 	}
@@ -61,6 +75,14 @@ func (t *namespacesTool) handle(ctx context.Context, req *mcp.CallToolRequest, _
 	sort.Slice(out.Namespaces, func(i, j int) bool {
 		return out.Namespaces[i].Name < out.Namespaces[j].Name
 	})
+
+	if logger != nil {
+		logger.Info("namespaces listed",
+			"tool", name,
+			"count", len(out.Namespaces),
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
+	}
 
 	return nil, out, nil
 }
