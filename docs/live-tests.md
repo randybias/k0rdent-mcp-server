@@ -5,7 +5,7 @@ running server against a live Kubernetes management cluster. All tests are
 guarded by the `live` build tag so default unit test runs stay fast.
 
 ## Prerequisites
-- The server must be running locally (default endpoint `http://127.0.0.1:8080/mcp`).
+- The server must be running locally (default endpoint `http://127.0.0.1:6767/mcp`).
 - A kubeconfig with appropriate credentials.
 
 ## Environment Variables

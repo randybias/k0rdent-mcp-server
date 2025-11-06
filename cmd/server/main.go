@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	defaultListenAddr = ":8080"
+	defaultListenAddr = ":6767"
 	gracefulTimeout   = 10 * time.Second
 	defaultPIDFile    = "k0rdent-mcp.pid"
 )

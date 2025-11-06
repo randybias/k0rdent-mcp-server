@@ -1,0 +1,3 @@
+- [x] T1 Update the default listen address constant and related CLI help/summary outputs to use port 6767.
+- [x] T2 Adjust documentation, tests, and integration helpers that reference 8080 to use the new default endpoint.
+- [x] T3 Validate with `go test ./...` and `openspec validate update-default-port --strict`.

@@ -41,12 +41,12 @@ func TestPrintStartupSummary(t *testing.T) {
 		},
 	}
 
-	printStartupSummary(buf, settings, "127.0.0.1:8080", "/tmp/pid")
+	printStartupSummary(buf, settings, "127.0.0.1:6767", "/tmp/pid")
 	output := buf.String()
 
 	checks := []string{
 		"K0rdent MCP Server Startup Summary",
-		"Listen Address:       127.0.0.1:8080",
+		"Listen Address:       127.0.0.1:6767",
 		"Auth Mode:            DEV_ALLOW_ANY",
 		"Kubeconfig Source:    path",
 		"Namespace Filter:     ^team-",
