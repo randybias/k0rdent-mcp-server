@@ -1,13 +1,10 @@
 package catalog
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -138,41 +135,36 @@ func (m *Manager) GetManifests(ctx context.Context, app, template, version strin
 		return nil, err
 	}
 
-	// Query database for paths
-	st, err := m.db.GetServiceTemplate(app, template, version)
+	// Query database to verify template exists
+	_, err := m.db.GetServiceTemplate(app, template, version)
 	if err != nil {
 		logger.Error("service template not found", "app", app, "template", template, "version", version, "error", err)
 		return nil, fmt.Errorf("app %q template %q version %q not found", app, template, version)
 	}
 
-	// Read manifests from disk using paths from DB
-	cacheDir, err := m.getCurrentCacheDir()
-	if err != nil {
-		logger.Error("failed to determine current cache directory", "error", err)
-		return nil, err
-	}
-
 	manifests := [][]byte{}
 
-	// Read ServiceTemplate manifest (required)
-	stPath := filepath.Join(cacheDir, st.ServiceTemplatePath)
-	stData, err := os.ReadFile(stPath)
+	// Fetch ServiceTemplate manifest from GitHub (required)
+	stURL := m.constructManifestURL(app, template, version)
+	logger.Debug("fetching service template manifest", "url", stURL)
+
+	stData, err := m.fetchManifestWithRetry(ctx, stURL)
 	if err != nil {
-		err = fmt.Errorf("read service template manifest: %w", err)
-		logger.Error("failed to read service template manifest", "path", stPath, "error", err)
-		return nil, err
+		logger.Error("failed to fetch service template manifest", "url", stURL, "error", err)
+		return nil, fmt.Errorf("fetch service template manifest: %w", err)
 	}
 	manifests = append(manifests, stData)
 
-	// Read HelmRepository manifest (optional)
-	if st.HelmRepositoryPath != "" {
-		hrPath := filepath.Join(cacheDir, st.HelmRepositoryPath)
-		hrData, err := os.ReadFile(hrPath)
-		if err != nil {
-			logger.Warn("failed to read helm repository manifest", "path", hrPath, "error", err)
-		} else {
-			manifests = append(manifests, hrData)
-		}
+	// Fetch HelmRepository manifest (optional)
+	// Note: HelmRepository is shared across all templates
+	hrURL := m.constructHelmRepoURL()
+	logger.Debug("fetching helm repository manifest", "url", hrURL)
+
+	hrData, err := m.fetchManifestWithRetry(ctx, hrURL)
+	if err != nil {
+		logger.Warn("failed to fetch helm repository manifest", "url", hrURL, "error", err)
+	} else {
+		manifests = append(manifests, hrData)
 	}
 
 	logger.Info("manifests retrieved", "app", app, "template", template, "version", version, "manifest_count", len(manifests))
@@ -184,36 +176,40 @@ func (m *Manager) GetManifests(ctx context.Context, app, template, version strin
 func (m *Manager) loadOrRefreshIndex(ctx context.Context, refresh bool) error {
 	logger := logging.WithContext(ctx, m.logger)
 
-	// Check if DB needs rebuild
-	currentSHA, err := m.db.GetMetadata("catalog_sha")
+	// Get currently cached index timestamp from database
+	currentIndexTimestamp, err := m.db.GetMetadata("index_timestamp")
 	if err != nil {
-		logger.Error("failed to get catalog SHA from database", "error", err)
-		return fmt.Errorf("get catalog SHA: %w", err)
+		logger.Error("failed to get index timestamp from database", "error", err)
+		return fmt.Errorf("get index timestamp: %w", err)
 	}
 
-	// Check if cache is still valid and we don't need to refresh
-	if currentSHA != "" && !refresh {
+	// Check if cache is still valid (TTL not expired) and we don't need to refresh
+	if currentIndexTimestamp != "" && !refresh {
 		if valid, err := m.isCacheValid(); err == nil && valid {
-			logger.Debug("using existing catalog index")
+			logger.Debug("using existing catalog index (cache TTL valid)", "timestamp", currentIndexTimestamp)
 			return nil
 		}
 	}
 
-	// Download and extract catalog
-	logger.Info("downloading catalog archive", "url", m.archiveURL)
+	// Fetch JSON catalog index to check if it has changed
+	logger.Debug("fetching JSON index to check for updates", "url", m.archiveURL)
 	start := time.Now()
 
-	actualSHA, cacheDir, err := m.downloadAndExtract(ctx)
+	index, actualSHA, err := m.fetchJSONIndex(ctx)
 	if err != nil {
-		logger.Error("failed to download and extract catalog", "error", err, "duration_ms", time.Since(start).Milliseconds())
+		logger.Error("failed to fetch JSON catalog index", "error", err, "duration_ms", time.Since(start).Milliseconds())
 		return err
 	}
 
-	logger.Info("catalog archive downloaded", "sha", actualSHA, "duration_ms", time.Since(start).Milliseconds())
+	newIndexTimestamp := index.Metadata.Generated
+	logger.Debug("JSON index fetched", "sha", actualSHA, "timestamp", newIndexTimestamp, "duration_ms", time.Since(start).Milliseconds())
 
-	// If SHA changed or refresh requested, rebuild DB
-	if actualSHA != currentSHA || refresh {
-		logger.Debug("rebuilding catalog database", "old_sha", currentSHA, "new_sha", actualSHA)
+	// Compare timestamps to determine if index needs rebuilding
+	if newIndexTimestamp != currentIndexTimestamp || currentIndexTimestamp == "" || refresh {
+		logger.Info("catalog index changed or missing, rebuilding database",
+			"old_timestamp", currentIndexTimestamp,
+			"new_timestamp", newIndexTimestamp,
+			"refresh_requested", refresh)
 		indexStart := time.Now()
 
 		if err := m.db.ClearAll(); err != nil {
@@ -221,11 +217,35 @@ func (m *Manager) loadOrRefreshIndex(ctx context.Context, refresh bool) error {
 			return fmt.Errorf("clear database: %w", err)
 		}
 
-		if err := buildDatabaseIndex(m.db, cacheDir); err != nil {
-			logger.Error("failed to build catalog index", "error", err)
-			return fmt.Errorf("build database index: %w", err)
+		// Parse JSON index into database rows
+		apps, templates, err := m.parseJSONIndex(index)
+		if err != nil {
+			logger.Error("failed to parse JSON index", "error", err)
+			return fmt.Errorf("parse JSON index: %w", err)
 		}
 
+		// Insert apps and templates into database
+		for _, app := range apps {
+			if err := m.db.UpsertApp(app); err != nil {
+				logger.Error("failed to insert app", "slug", app.Slug, "error", err)
+				return fmt.Errorf("insert app %s: %w", app.Slug, err)
+			}
+		}
+
+		for _, tmpl := range templates {
+			if err := m.db.UpsertServiceTemplate(tmpl); err != nil {
+				logger.Error("failed to insert template", "app", tmpl.AppSlug, "chart", tmpl.ChartName, "version", tmpl.Version, "error", err)
+				return fmt.Errorf("insert template %s/%s/%s: %w", tmpl.AppSlug, tmpl.ChartName, tmpl.Version, err)
+			}
+		}
+
+		// Store the index timestamp from metadata.generated
+		if err := m.db.SetMetadata("index_timestamp", newIndexTimestamp); err != nil {
+			logger.Error("failed to set index timestamp", "error", err)
+			return fmt.Errorf("set index timestamp: %w", err)
+		}
+
+		// Store SHA for reference (keeping for backward compatibility)
 		if err := m.db.SetMetadata("catalog_sha", actualSHA); err != nil {
 			logger.Error("failed to set catalog SHA", "error", err)
 			return fmt.Errorf("set catalog SHA: %w", err)
@@ -236,136 +256,30 @@ func (m *Manager) loadOrRefreshIndex(ctx context.Context, refresh bool) error {
 			return fmt.Errorf("set indexed_at: %w", err)
 		}
 
-		logger.Info("catalog index built", "duration_ms", time.Since(indexStart).Milliseconds())
-	} else {
-		logger.Debug("catalog SHA unchanged, skipping index rebuild")
-	}
-
-	return nil
-}
-
-// downloadAndExtract fetches the catalog tarball, computes its SHA, extracts it
-// to a cache directory, and stores metadata. Returns SHA and extraction directory path.
-func (m *Manager) downloadAndExtract(ctx context.Context) (string, string, error) {
-	logger := logging.WithContext(ctx, m.logger)
-
-	// Download tarball
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.archiveURL, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("create download request: %w", err)
-	}
-
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("download catalog archive: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("download failed with status %d", resp.StatusCode)
-	}
-
-	// Read response into memory and compute SHA
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", "", fmt.Errorf("read archive data: %w", err)
-	}
-
-	hash := sha256.Sum256(data)
-	sha := hex.EncodeToString(hash[:])
-	logger.Debug("catalog archive downloaded", "sha", sha, "size_bytes", len(data))
-
-	// Check if this SHA is already cached
-	cacheSubdir := fmt.Sprintf("catalog-%s", sha)
-	extractDir := filepath.Join(m.cacheDir, cacheSubdir)
-
-	if _, err := os.Stat(extractDir); err == nil {
-		logger.Info("catalog already cached", "sha", sha)
-		return sha, extractDir, nil
-	}
-
-	// Extract tarball
-	logger.Debug("extracting catalog archive", "dest", extractDir)
-	if err := m.extractTarball(data, extractDir); err != nil {
-		return "", "", fmt.Errorf("extract archive: %w", err)
-	}
-
-	// Write cache metadata
-	metadata := CacheMetadata{
-		SHA:       sha,
-		Timestamp: time.Now(),
-		URL:       m.archiveURL,
-	}
-
-	metadataPath := filepath.Join(m.cacheDir, "metadata.json")
-	metadataData, err := json.Marshal(metadata)
-	if err != nil {
-		logger.Warn("failed to marshal cache metadata", "error", err)
-	} else {
-		if err := os.WriteFile(metadataPath, metadataData, 0644); err != nil {
-			logger.Warn("failed to write cache metadata", "error", err)
+		// Write cache metadata with index timestamp
+		metadata := CacheMetadata{
+			SHA:            actualSHA,
+			Timestamp:      time.Now(),
+			URL:            m.archiveURL,
+			IndexTimestamp: newIndexTimestamp,
 		}
-	}
-
-	logger.Info("catalog extracted successfully", "sha", sha)
-	return sha, extractDir, nil
-}
-
-// extractTarball unpacks a gzipped tar archive into the destination directory.
-func (m *Manager) extractTarball(data []byte, destDir string) error {
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
-	}
-
-	gzReader, err := gzip.NewReader(strings.NewReader(string(data)))
-	if err != nil {
-		return fmt.Errorf("create gzip reader: %w", err)
-	}
-	defer gzReader.Close()
-
-	tarReader := tar.NewReader(gzReader)
-
-	for {
-		header, err := tarReader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+		metadataPath := filepath.Join(m.cacheDir, "metadata.json")
+		metadataData, err := json.Marshal(metadata)
 		if err != nil {
-			return fmt.Errorf("read tar header: %w", err)
+			logger.Warn("failed to marshal cache metadata", "error", err)
+		} else {
+			if err := os.WriteFile(metadataPath, metadataData, 0644); err != nil {
+				logger.Warn("failed to write cache metadata", "error", err)
+			}
 		}
 
-		// Security: validate path to prevent directory traversal
-		if strings.Contains(header.Name, "..") {
-			m.logger.Warn("skipping suspicious tar entry", "name", header.Name)
-			continue
-		}
-
-		// Strip the top-level directory (catalog-main/)
-		parts := strings.SplitN(header.Name, "/", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		targetPath := filepath.Join(destDir, parts[1])
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0755); err != nil {
-				return fmt.Errorf("create directory %s: %w", targetPath, err)
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				return fmt.Errorf("create parent directory for %s: %w", targetPath, err)
-			}
-			outFile, err := os.Create(targetPath)
-			if err != nil {
-				return fmt.Errorf("create file %s: %w", targetPath, err)
-			}
-			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
-				return fmt.Errorf("write file %s: %w", targetPath, err)
-			}
-			outFile.Close()
-		}
+		logger.Info("catalog index rebuilt successfully",
+			"app_count", len(apps),
+			"template_count", len(templates),
+			"timestamp", newIndexTimestamp,
+			"duration_ms", time.Since(indexStart).Milliseconds())
+	} else {
+		logger.Debug("catalog index timestamp unchanged, skipping rebuild", "timestamp", currentIndexTimestamp)
 	}
 
 	return nil
@@ -391,19 +305,197 @@ func (m *Manager) isCacheValid() (bool, error) {
 	return age < m.cacheTTL, nil
 }
 
-// getCurrentCacheDir returns the path to the most recently cached catalog extraction.
-func (m *Manager) getCurrentCacheDir() (string, error) {
-	metadataPath := filepath.Join(m.cacheDir, "metadata.json")
-	data, err := os.ReadFile(metadataPath)
+// fetchJSONIndex downloads the JSON catalog index from the configured URL,
+// computes its SHA256 hash, and returns both the parsed index and the hash.
+func (m *Manager) fetchJSONIndex(ctx context.Context) (*JSONIndex, string, error) {
+	logger := logging.WithContext(ctx, m.logger)
+	logger.Debug("fetching JSON index", "url", m.archiveURL)
+
+	// Download JSON index
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.archiveURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("read cache metadata: %w", err)
+		return nil, "", fmt.Errorf("create download request: %w", err)
 	}
 
-	var metadata CacheMetadata
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return "", fmt.Errorf("unmarshal cache metadata: %w", err)
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("download catalog index: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
 
-	cacheSubdir := fmt.Sprintf("catalog-%s", metadata.SHA)
-	return filepath.Join(m.cacheDir, cacheSubdir), nil
+	// Read response into memory and compute SHA
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read index data: %w", err)
+	}
+
+	hash := sha256.Sum256(data)
+	sha := hex.EncodeToString(hash[:])
+	logger.Debug("JSON index downloaded", "sha", sha, "size_bytes", len(data))
+
+	// Parse JSON
+	var index JSONIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil, "", fmt.Errorf("parse JSON index: %w", err)
+	}
+
+	logger.Info("JSON index fetched successfully", "sha", sha, "addon_count", len(index.Addons))
+	return &index, sha, nil
+}
+
+// parseJSONIndex converts a JSONIndex structure into database rows for storage.
+// Returns slices of AppRow and ServiceTemplateRow entries ready to be inserted into SQLite.
+func (m *Manager) parseJSONIndex(index *JSONIndex) ([]AppRow, []ServiceTemplateRow, error) {
+	if index == nil {
+		return nil, nil, fmt.Errorf("index is nil")
+	}
+
+	apps := make([]AppRow, 0, len(index.Addons))
+	templates := []ServiceTemplateRow{}
+
+	for _, addon := range index.Addons {
+		// Map JSONAddon to AppRow
+		app := AppRow{
+			Slug:    addon.Name,
+			Title:   addon.Name, // JSON index doesn't have a separate title field
+			Summary: addon.Description,
+			Tags:    addon.Metadata.Tags,
+			// ValidatedPlatforms not available in JSON index yet
+			ValidatedPlatforms: []string{},
+		}
+		apps = append(apps, app)
+
+		// Map charts and versions to ServiceTemplateRow
+		for _, chart := range addon.Charts {
+			for _, version := range chart.Versions {
+				// Note: ServiceTemplatePath and HelmRepositoryPath will need to be
+				// populated separately when we implement manifest downloading from OCI
+				tmpl := ServiceTemplateRow{
+					AppSlug:             addon.Name,
+					ChartName:           chart.Name,
+					Version:             version,
+					ServiceTemplatePath: "", // To be populated when downloading manifests
+					HelmRepositoryPath:  "", // To be populated when downloading manifests
+				}
+				templates = append(templates, tmpl)
+			}
+		}
+	}
+
+	m.logger.Debug("parsed JSON index", "app_count", len(apps), "template_count", len(templates))
+	return apps, templates, nil
+}
+
+// constructManifestURL builds the GitHub raw URL for a ServiceTemplate manifest.
+// Pattern: https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/{slug}/charts/{name}-service-template-{version}/templates/service-template.yaml
+func (m *Manager) constructManifestURL(slug, name, version string) string {
+	return fmt.Sprintf(
+		"https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/%s/charts/%s-service-template-%s/templates/service-template.yaml",
+		slug, name, version,
+	)
+}
+
+// constructHelmRepoURL builds the GitHub raw URL for the HelmRepository manifest.
+// This is a constant path as the HelmRepository is shared across all templates.
+func (m *Manager) constructHelmRepoURL() string {
+	return "https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-utils/charts/k0rdent-catalog-1.0.0/templates/helm-repository.yaml"
+}
+
+// fetchManifestWithRetry fetches a manifest from a URL with retry logic and timeout.
+// It will retry up to 3 times with exponential backoff on transient errors.
+func (m *Manager) fetchManifestWithRetry(ctx context.Context, url string) ([]byte, error) {
+	const maxRetries = 3
+	const initialBackoff = 500 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := initialBackoff * (1 << uint(attempt-1))
+			m.logger.Debug("retrying manifest fetch", "url", url, "attempt", attempt+1, "backoff_ms", backoff.Milliseconds())
+
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		data, err := m.fetchManifest(ctx, url)
+		if err == nil {
+			return data, nil
+		}
+
+		lastErr = err
+
+		// Check if we should retry based on error type
+		if !m.shouldRetry(err) {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// fetchManifest performs a single HTTP GET request to fetch a manifest.
+func (m *Manager) fetchManifest(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+
+	return data, nil
+}
+
+// shouldRetry determines if an error is transient and should trigger a retry.
+func (m *Manager) shouldRetry(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+
+	// Retry on network errors
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "temporary failure") {
+		return true
+	}
+
+	// Retry on 5xx server errors
+	if strings.Contains(errStr, "status code 5") {
+		return true
+	}
+
+	// Retry on 429 (Too Many Requests)
+	if strings.Contains(errStr, "status code 429") {
+		return true
+	}
+
+	// Don't retry on 4xx client errors (except 429)
+	if strings.Contains(errStr, "status code 4") {
+		return false
+	}
+
+	// For other errors, be conservative and don't retry
+	return false
 }

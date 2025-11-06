@@ -1,8 +1,6 @@
 package catalog
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,87 +14,6 @@ import (
 	"testing"
 	"time"
 )
-
-// TestMain creates the test tarball if it doesn't exist
-func TestMain(m *testing.M) {
-	if err := createTestTarball(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create test tarball: %v\n", err)
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
-}
-
-// createTestTarball creates a tarball from the testdata directory structure
-func createTestTarball() error {
-	testdataDir := filepath.Join("testdata", "catalog-fake-sha", "catalog-main")
-	tarballPath := filepath.Join("testdata", "test-archive.tar.gz")
-
-	// Check if tarball already exists and is newer than testdata
-	if info, err := os.Stat(tarballPath); err == nil {
-		testdataInfo, err := os.Stat(testdataDir)
-		if err == nil && info.ModTime().After(testdataInfo.ModTime()) {
-			return nil // Tarball is up to date
-		}
-	}
-
-	// Create the tarball
-	file, err := os.Create(tarballPath)
-	if err != nil {
-		return fmt.Errorf("create tarball file: %w", err)
-	}
-	defer file.Close()
-
-	gzWriter := gzip.NewWriter(file)
-	defer gzWriter.Close()
-
-	tarWriter := tar.NewWriter(gzWriter)
-	defer tarWriter.Close()
-
-	// Walk the testdata directory and add files to the tarball
-	err = filepath.Walk(testdataDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Create tar header
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return fmt.Errorf("create tar header: %w", err)
-		}
-
-		// Set name relative to testdata dir, adding catalog-main/ prefix
-		relPath, err := filepath.Rel(testdataDir, path)
-		if err != nil {
-			return fmt.Errorf("get relative path: %w", err)
-		}
-
-		if relPath == "." {
-			return nil
-		}
-
-		header.Name = filepath.Join("catalog-main", relPath)
-
-		// Write header
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("write tar header: %w", err)
-		}
-
-		// Write file content if it's a regular file
-		if info.Mode().IsRegular() {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("read file: %w", err)
-			}
-			if _, err := tarWriter.Write(data); err != nil {
-				return fmt.Errorf("write file to tar: %w", err)
-			}
-		}
-
-		return nil
-	})
-
-	return err
-}
 
 func TestNewManager(t *testing.T) {
 	cacheDir := t.TempDir()
@@ -153,15 +70,15 @@ func TestNewManagerDefaults(t *testing.T) {
 }
 
 func TestListWithoutCache(t *testing.T) {
-	// Create test server serving tarball
+	// Create test server serving JSON index
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
-			t.Logf("failed to read test tarball: %v", err)
+			t.Logf("failed to read test JSON index: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -199,7 +116,7 @@ func TestListWithoutCache(t *testing.T) {
 		t.Fatal("minio entry not found")
 	}
 
-	if minioEntry.Title != "MinIO Object Storage" {
+	if minioEntry.Title != "minio" {
 		t.Errorf("unexpected title: %s", minioEntry.Title)
 	}
 
@@ -212,11 +129,12 @@ func TestListWithCache(t *testing.T) {
 	requestCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -257,11 +175,12 @@ func TestListWithRefresh(t *testing.T) {
 	requestCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -296,11 +215,12 @@ func TestListWithRefresh(t *testing.T) {
 
 func TestListWithAppFilter(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -343,11 +263,12 @@ func TestListWithAppFilter(t *testing.T) {
 
 func TestGetManifests(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -400,11 +321,12 @@ func TestGetManifests(t *testing.T) {
 
 func TestGetManifestsNotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -439,11 +361,12 @@ func TestGetManifestsNotFound(t *testing.T) {
 
 func TestGetManifestsVersionNotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -661,7 +584,7 @@ func TestContextCancellation(t *testing.T) {
 	// Create a slow server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
-		data, _ := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, _ := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -692,58 +615,14 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
-func TestExtractTarballSecurityPathTraversal(t *testing.T) {
-	// Create a malicious tarball with path traversal
-	cacheDir := t.TempDir()
-	manager := &Manager{
-		cacheDir: cacheDir,
-		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
-
-	// Create tarball with dangerous path
-	var buf strings.Builder
-	gzWriter := gzip.NewWriter(&buf)
-	tarWriter := tar.NewWriter(gzWriter)
-
-	// Add entry with .. in path
-	header := &tar.Header{
-		Name:     "catalog-main/../../../etc/passwd",
-		Mode:     0644,
-		Size:     4,
-		Typeflag: tar.TypeReg,
-	}
-	if err := tarWriter.WriteHeader(header); err != nil {
-		t.Fatalf("failed to write tar header: %v", err)
-	}
-	if _, err := tarWriter.Write([]byte("test")); err != nil {
-		t.Fatalf("failed to write tar content: %v", err)
-	}
-
-	tarWriter.Close()
-	gzWriter.Close()
-
-	extractDir := filepath.Join(cacheDir, "test-extract")
-	err := manager.extractTarball([]byte(buf.String()), extractDir)
-
-	// Should not error, but should skip the malicious entry
-	if err != nil {
-		t.Fatalf("extractTarball failed: %v", err)
-	}
-
-	// Verify the dangerous file was not created
-	dangerousPath := filepath.Join(extractDir, "..", "..", "..", "etc", "passwd")
-	if _, err := os.Stat(dangerousPath); !os.IsNotExist(err) {
-		t.Error("dangerous file should not have been extracted")
-	}
-}
-
 func TestConcurrentAccess(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(filepath.Join("testdata", "test-archive.tar.gz"))
+		data, err := os.ReadFile(filepath.Join("testdata", "valid-index.json"))
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -775,5 +654,392 @@ func TestConcurrentAccess(t *testing.T) {
 		if err := <-errChan; err != nil {
 			t.Errorf("concurrent List call failed: %v", err)
 		}
+	}
+}
+
+// TestConstructManifestURL verifies the URL construction for ServiceTemplate manifests.
+func TestConstructManifestURL(t *testing.T) {
+	manager := &Manager{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	tests := []struct {
+		name     string
+		slug     string
+		tmplName string
+		version  string
+		expected string
+	}{
+		{
+			name:     "minio template",
+			slug:     "minio",
+			tmplName: "minio",
+			version:  "14.1.2",
+			expected: "https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/minio/charts/minio-service-template-14.1.2/templates/service-template.yaml",
+		},
+		{
+			name:     "postgresql template",
+			slug:     "postgresql",
+			tmplName: "postgresql",
+			version:  "12.3.4",
+			expected: "https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/postgresql/charts/postgresql-service-template-12.3.4/templates/service-template.yaml",
+		},
+		{
+			name:     "template with hyphens",
+			slug:     "cert-manager",
+			tmplName: "cert-manager",
+			version:  "1.0.0",
+			expected: "https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/cert-manager/charts/cert-manager-service-template-1.0.0/templates/service-template.yaml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := manager.constructManifestURL(tt.slug, tt.tmplName, tt.version)
+			if url != tt.expected {
+				t.Errorf("expected URL %q, got %q", tt.expected, url)
+			}
+		})
+	}
+}
+
+// TestConstructHelmRepoURL verifies the URL construction for HelmRepository manifest.
+func TestConstructHelmRepoURL(t *testing.T) {
+	manager := &Manager{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	expected := "https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-utils/charts/k0rdent-catalog-1.0.0/templates/helm-repository.yaml"
+	url := manager.constructHelmRepoURL()
+
+	if url != expected {
+		t.Errorf("expected URL %q, got %q", expected, url)
+	}
+}
+
+// TestFetchManifestSuccess tests successful manifest fetch.
+func TestFetchManifestSuccess(t *testing.T) {
+	expectedContent := "apiVersion: v1\nkind: ServiceTemplate\nmetadata:\n  name: test"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET request, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(expectedContent))
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	data, err := manager.fetchManifest(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatalf("fetchManifest failed: %v", err)
+	}
+
+	if string(data) != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, string(data))
+	}
+}
+
+// TestFetchManifest404 tests manifest fetch returning 404.
+func TestFetchManifest404(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	_, err := manager.fetchManifest(context.Background(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("expected error to mention 404, got: %v", err)
+	}
+}
+
+// TestFetchManifest500 tests manifest fetch returning 500.
+func TestFetchManifest500(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	_, err := manager.fetchManifest(context.Background(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("expected error to mention 500, got: %v", err)
+	}
+}
+
+// TestFetchManifestNetworkError tests manifest fetch with network error.
+func TestFetchManifestNetworkError(t *testing.T) {
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 1 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	// Try to connect to a non-routable address
+	_, err := manager.fetchManifest(context.Background(), "http://192.0.2.1:9999/manifest.yaml")
+	if err == nil {
+		t.Fatal("expected error for network failure")
+	}
+}
+
+// TestFetchManifestTimeout tests manifest fetch with timeout.
+func TestFetchManifestTimeout(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate slow response
+		time.Sleep(2 * time.Second)
+		w.Write([]byte("too slow"))
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 100 * time.Millisecond},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	ctx := context.Background()
+	_, err := manager.fetchManifest(ctx, ts.URL)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+// TestFetchManifestContextCancellation tests manifest fetch with cancelled context.
+func TestFetchManifestContextCancellation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second)
+		w.Write([]byte("delayed"))
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := manager.fetchManifest(ctx, ts.URL)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+// TestFetchManifestWithRetrySuccess tests successful fetch with retry logic.
+func TestFetchManifestWithRetrySuccess(t *testing.T) {
+	expectedContent := "manifest data"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(expectedContent))
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	data, err := manager.fetchManifestWithRetry(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatalf("fetchManifestWithRetry failed: %v", err)
+	}
+
+	if string(data) != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, string(data))
+	}
+}
+
+// TestFetchManifestWithRetryTransientError tests retry on transient errors.
+func TestFetchManifestWithRetryTransientError(t *testing.T) {
+	attemptCount := 0
+	expectedContent := "success on third try"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount < 3 {
+			// Return 500 on first two attempts (transient error)
+			http.Error(w, "temporary error", http.StatusInternalServerError)
+			return
+		}
+		// Succeed on third attempt
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(expectedContent))
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	data, err := manager.fetchManifestWithRetry(context.Background(), ts.URL)
+	if err != nil {
+		t.Fatalf("fetchManifestWithRetry failed: %v", err)
+	}
+
+	if string(data) != expectedContent {
+		t.Errorf("expected content %q, got %q", expectedContent, string(data))
+	}
+
+	if attemptCount != 3 {
+		t.Errorf("expected 3 attempts, got %d", attemptCount)
+	}
+}
+
+// TestFetchManifestWithRetryPermanentError tests no retry on permanent errors.
+func TestFetchManifestWithRetryPermanentError(t *testing.T) {
+	attemptCount := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		// Return 404 (permanent error)
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	_, err := manager.fetchManifestWithRetry(context.Background(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+
+	// Should only attempt once for 404 (permanent error)
+	if attemptCount != 1 {
+		t.Errorf("expected 1 attempt for permanent error, got %d", attemptCount)
+	}
+}
+
+// TestFetchManifestWithRetryMaxAttempts tests max retry attempts.
+func TestFetchManifestWithRetryMaxAttempts(t *testing.T) {
+	attemptCount := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		// Always return 500 (transient error)
+		http.Error(w, "server error", http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	manager := &Manager{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	_, err := manager.fetchManifestWithRetry(context.Background(), ts.URL)
+	if err == nil {
+		t.Fatal("expected error after max retries")
+	}
+
+	// Should attempt 3 times (initial + 2 retries)
+	if attemptCount != 3 {
+		t.Errorf("expected 3 attempts, got %d", attemptCount)
+	}
+
+	if !strings.Contains(err.Error(), "failed after 3 attempts") {
+		t.Errorf("expected error message to mention retry count, got: %v", err)
+	}
+}
+
+// TestShouldRetry tests the retry logic decision making.
+func TestShouldRetry(t *testing.T) {
+	manager := &Manager{
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	tests := []struct {
+		name        string
+		err         error
+		shouldRetry bool
+	}{
+		{
+			name:        "nil error",
+			err:         nil,
+			shouldRetry: false,
+		},
+		{
+			name:        "500 error",
+			err:         fmt.Errorf("unexpected status code 500"),
+			shouldRetry: true,
+		},
+		{
+			name:        "503 error",
+			err:         fmt.Errorf("unexpected status code 503"),
+			shouldRetry: true,
+		},
+		{
+			name:        "429 error",
+			err:         fmt.Errorf("unexpected status code 429"),
+			shouldRetry: true,
+		},
+		{
+			name:        "404 error",
+			err:         fmt.Errorf("unexpected status code 404"),
+			shouldRetry: false,
+		},
+		{
+			name:        "400 error",
+			err:         fmt.Errorf("unexpected status code 400"),
+			shouldRetry: false,
+		},
+		{
+			name:        "connection refused",
+			err:         fmt.Errorf("dial tcp: connection refused"),
+			shouldRetry: true,
+		},
+		{
+			name:        "connection reset",
+			err:         fmt.Errorf("read tcp: connection reset by peer"),
+			shouldRetry: true,
+		},
+		{
+			name:        "timeout",
+			err:         fmt.Errorf("context deadline exceeded (timeout)"),
+			shouldRetry: true,
+		},
+		{
+			name:        "temporary failure",
+			err:         fmt.Errorf("temporary failure in name resolution"),
+			shouldRetry: true,
+		},
+		{
+			name:        "other error",
+			err:         fmt.Errorf("some other error"),
+			shouldRetry: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.shouldRetry(tt.err)
+			if result != tt.shouldRetry {
+				t.Errorf("shouldRetry(%v) = %v, want %v", tt.err, result, tt.shouldRetry)
+			}
+		})
 	}
 }

@@ -56,6 +56,10 @@ type CacheMetadata struct {
 
 	// URL is the archive URL that was fetched
 	URL string `json:"url"`
+
+	// IndexTimestamp stores the metadata.generated timestamp from the JSON index
+	// Used to determine if the catalog index has changed without re-downloading
+	IndexTimestamp string `json:"index_timestamp,omitempty"`
 }
 
 // Options configure the catalog Manager.
@@ -77,4 +81,61 @@ type Options struct {
 
 	// Logger is used for structured logging (optional, defaults to slog.Default())
 	Logger *slog.Logger
+}
+
+// JSONIndex represents the structure of the JSON catalog index downloaded from the catalog repository.
+type JSONIndex struct {
+	// Metadata contains versioning and generation information about the index
+	Metadata JSONMetadata `json:"metadata"`
+
+	// Addons is the list of all applications/addons in the catalog
+	Addons []JSONAddon `json:"addons"`
+}
+
+// JSONMetadata contains versioning and timestamp information for the JSON index.
+type JSONMetadata struct {
+	// Generated is the timestamp when the index was generated
+	Generated string `json:"generated"`
+
+	// Version is the schema version of the index format
+	Version string `json:"version"`
+}
+
+// JSONAddon represents a single addon/application entry in the JSON catalog index.
+type JSONAddon struct {
+	// Name is the unique identifier for the addon (maps to CatalogEntry.Slug)
+	Name string `json:"name"`
+
+	// Description provides a brief description of the addon (maps to CatalogEntry.Summary)
+	Description string `json:"description"`
+
+	// LatestVersion is the most recent version available for this addon
+	LatestVersion string `json:"latestVersion"`
+
+	// Versions lists all available versions for this addon
+	Versions []string `json:"versions"`
+
+	// Charts lists the Helm charts associated with this addon
+	Charts []JSONChart `json:"charts"`
+
+	// Metadata contains additional metadata about the addon
+	Metadata JSONAddonMetadata `json:"metadata"`
+}
+
+// JSONChart represents a Helm chart within an addon.
+type JSONChart struct {
+	// Name is the chart name (maps to ServiceTemplateVersion.Name)
+	Name string `json:"name"`
+
+	// Versions lists all available versions of this chart (maps to ServiceTemplateVersion.Version)
+	Versions []string `json:"versions"`
+}
+
+// JSONAddonMetadata contains additional metadata fields for an addon.
+type JSONAddonMetadata struct {
+	// Tags are labels for categorizing the addon
+	Tags []string `json:"tags"`
+
+	// Owner identifies the team or organization maintaining this addon
+	Owner string `json:"owner"`
 }

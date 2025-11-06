@@ -64,7 +64,7 @@ func (c *liveClient) initialize(t testing.TB) string {
 
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        t.Fatalf(formatLiveFailure("initialize", err))
+        t.Fatalf("%s", formatLiveFailure("initialize", err))
     }
     defer resp.Body.Close()
 
@@ -133,7 +133,7 @@ func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]an
 
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        t.Fatalf(formatLiveFailure(fmt.Sprintf("call tool %s", name), err))
+        t.Fatalf("%s", formatLiveFailure(fmt.Sprintf("call tool %s", name), err))
     }
     defer resp.Body.Close()
 

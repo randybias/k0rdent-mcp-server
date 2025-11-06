@@ -18,8 +18,8 @@ const (
 	// EnvCacheTTL overrides the default cache time-to-live
 	EnvCacheTTL = "CATALOG_CACHE_TTL"
 
-	// DefaultArchiveURL points to the main branch tarball of the k0rdent catalog
-	DefaultArchiveURL = "https://github.com/k0rdent/catalog/archive/refs/heads/main.tar.gz"
+	// DefaultArchiveURL points to the latest JSON index of the k0rdent catalog
+	DefaultArchiveURL = "https://catalog.k0rdent.io/latest/index.json"
 
 	// DefaultCacheDir is the filesystem location for storing catalog data
 	DefaultCacheDir = "/var/lib/k0rdent-mcp/catalog"

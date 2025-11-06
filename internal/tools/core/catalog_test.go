@@ -48,21 +48,21 @@ metadata:
 	testInvalidYAML = `this is not valid yaml: {[`
 )
 
-// Helper to create a fake HTTP server that serves the real test catalog tarball
+// Helper to create a fake HTTP server that serves the test catalog JSON index
 func createTestCatalogManager(t *testing.T) (*httptest.Server, *catalog.Manager) {
 	t.Helper()
 
-	// Use the existing test tarball from the catalog package
-	testTarballPath := filepath.Join("..", "..", "catalog", "testdata", "test-archive.tar.gz")
+	// Use the JSON index from the catalog package testdata
+	testIndexPath := filepath.Join("..", "..", "catalog", "testdata", "valid-index.json")
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := os.ReadFile(testTarballPath)
+		data, err := os.ReadFile(testIndexPath)
 		if err != nil {
-			t.Logf("failed to read test tarball: %v", err)
+			t.Logf("failed to read test index: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
 	}))
 
@@ -105,8 +105,8 @@ func TestCatalogList_Success(t *testing.T) {
 	for _, entry := range result.Entries {
 		if entry.Slug == "minio" {
 			minioFound = true
-			if entry.Title != "MinIO Object Storage" {
-				t.Errorf("expected title 'MinIO Object Storage', got %q", entry.Title)
+			if entry.Title != "minio" {
+				t.Errorf("expected title 'minio', got %q", entry.Title)
 			}
 			break
 		}
@@ -488,5 +488,299 @@ func TestPluralize(t *testing.T) {
 				t.Errorf("pluralize(%q) = %q, expected %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+// TestCatalogDelete_Success tests successful deletion
+func TestCatalogDelete_Success(t *testing.T) {
+	t.Skip("Skipping: fake dynamic client does not support Delete operations correctly - tested in integration tests")
+	// Note: This test would verify successful deletion of ServiceTemplate and HelmRepository.
+	// The fake dynamic client doesn't properly simulate deletion, so this is covered by
+	// integration tests instead.
+}
+
+// TestCatalogDelete_MissingApp tests error when app not found
+func TestCatalogDelete_MissingApp(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: regexp.MustCompile(".*"),
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:      "nonexistent",
+		Template: "postgresql",
+		Version:  "1.0.0",
+	}
+
+	_, _, err := tool.delete(context.Background(), nil, input)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if err.Error() != `app "nonexistent" template "postgresql" version "1.0.0" not found` {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestCatalogDelete_MissingVersion tests error when version not found
+func TestCatalogDelete_MissingVersion(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: regexp.MustCompile(".*"),
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:      "minio",
+		Template: "minio",
+		Version:  "99.0.0",
+	}
+
+	_, _, err := tool.delete(context.Background(), nil, input)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if err.Error() != `app "minio" template "minio" version "99.0.0" not found` {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestCatalogDelete_NamespaceFilterBlocked tests namespace filter rejection
+func TestCatalogDelete_NamespaceFilterBlocked(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: regexp.MustCompile("^allowed-"), // only allow namespaces starting with "allowed-"
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:       "minio",
+		Template:  "minio",
+		Version:   "14.1.2",
+		Namespace: "kcm-system", // Explicitly specify namespace that doesn't match filter
+	}
+
+	_, _, err := tool.delete(context.Background(), nil, input)
+	if err == nil {
+		t.Fatal("expected namespace filter error, got nil")
+	}
+
+	if err.Error() != `namespace "kcm-system" not allowed by namespace filter` {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestCatalogDelete_NamespaceFilterAllowed tests namespace filter allowing deletion
+func TestCatalogDelete_NamespaceFilterAllowed(t *testing.T) {
+	t.Skip("Skipping: fake dynamic client does not support Delete operations correctly - tested in integration tests")
+	// Note: This test verifies that namespace filter allows deletion when
+	// the namespace matches the filter regex. The actual Delete operation requires
+	// a real cluster or more sophisticated fake client.
+}
+
+// TestCatalogDelete_MissingRequiredFields tests validation of required inputs
+func TestCatalogDelete_MissingRequiredFields(t *testing.T) {
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+	}
+
+	// We don't need a real manager for validation tests
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ts.Close()
+
+	manager, _ := catalog.NewManager(catalog.Options{
+		ArchiveURL: ts.URL,
+		CacheDir:   t.TempDir(),
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	tests := []struct {
+		name          string
+		input         catalogDeleteInput
+		expectedError string
+	}{
+		{
+			name:          "missing app",
+			input:         catalogDeleteInput{Template: "test", Version: "1.0.0"},
+			expectedError: "app is required",
+		},
+		{
+			name:          "missing template",
+			input:         catalogDeleteInput{App: "test", Version: "1.0.0"},
+			expectedError: "template is required",
+		},
+		{
+			name:          "missing version",
+			input:         catalogDeleteInput{App: "test", Template: "test"},
+			expectedError: "version is required",
+		},
+		{
+			name:          "all fields empty",
+			input:         catalogDeleteInput{},
+			expectedError: "app is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := tool.delete(context.Background(), nil, tt.input)
+			if err == nil {
+				t.Fatal("expected validation error, got nil")
+			}
+
+			if err.Error() != tt.expectedError {
+				t.Errorf("expected error %q, got %q", tt.expectedError, err.Error())
+			}
+		})
+	}
+}
+
+// TestCatalogDelete_DefaultNamespace tests DEV_ALLOW_ANY mode defaults to kcm-system
+func TestCatalogDelete_DefaultNamespace(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: nil, // DEV_ALLOW_ANY mode
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:      "minio",
+		Template: "minio",
+		Version:  "14.1.2",
+		// No namespace specified - should default to kcm-system
+	}
+
+	// We expect this to fail at the delete stage (not at namespace resolution)
+	// because the fake client can't handle delete properly, but we validate
+	// that it gets past namespace resolution
+	_, _, err := tool.delete(context.Background(), nil, input)
+
+	// Should not be a namespace resolution error
+	if err != nil && (err.Error() == "namespace must be specified in OIDC_REQUIRED mode (use 'namespace' parameter or 'all_namespaces: true')") {
+		t.Errorf("namespace resolution failed when it should have defaulted to kcm-system: %v", err)
+	}
+}
+
+// TestCatalogDelete_OIDCRequiredMode tests that explicit namespace is required in OIDC mode
+func TestCatalogDelete_OIDCRequiredMode(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: regexp.MustCompile("^user-"), // OIDC_REQUIRED mode with restricted filter
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:      "minio",
+		Template: "minio",
+		Version:  "14.1.2",
+		// No namespace specified - should fail in OIDC_REQUIRED mode
+	}
+
+	_, _, err := tool.delete(context.Background(), nil, input)
+	if err == nil {
+		t.Fatal("expected error requiring explicit namespace in OIDC_REQUIRED mode, got nil")
+	}
+
+	expectedError := "namespace must be specified in OIDC_REQUIRED mode (use 'namespace' parameter or 'all_namespaces: true')"
+	if err.Error() != expectedError {
+		t.Errorf("expected error %q, got %q", expectedError, err.Error())
+	}
+}
+
+// TestCatalogDelete_AllNamespaces tests deletion from all allowed namespaces
+func TestCatalogDelete_AllNamespaces(t *testing.T) {
+	t.Skip("Skipping: fake dynamic client does not support Delete operations correctly - tested in integration tests")
+	// Note: This test would verify deletion from all namespaces matching the filter.
+	// The fake dynamic client doesn't properly simulate namespace listing and deletion,
+	// so this is covered by integration tests instead.
+}
+
+// TestCatalogDelete_BothNamespaceAndAllNamespaces tests error when both parameters are specified
+func TestCatalogDelete_BothNamespaceAndAllNamespaces(t *testing.T) {
+	ts, manager := createTestCatalogManager(t)
+	defer ts.Close()
+
+	session := &k0runtime.Session{
+		Clients: k0runtime.Clients{
+			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
+		},
+		NamespaceFilter: regexp.MustCompile(".*"),
+	}
+
+	tool := &catalogDeleteServiceTemplateTool{
+		session: session,
+		manager: manager,
+	}
+
+	input := catalogDeleteInput{
+		App:           "minio",
+		Template:      "minio",
+		Version:       "14.1.2",
+		Namespace:     "test-namespace",
+		AllNamespaces: true, // Both specified - should error
+	}
+
+	_, _, err := tool.delete(context.Background(), nil, input)
+	if err == nil {
+		t.Fatal("expected error when both namespace and all_namespaces are specified, got nil")
+	}
+
+	expectedError := "cannot specify both 'namespace' and 'all_namespaces'"
+	if err.Error() != expectedError {
+		t.Errorf("expected error %q, got %q", expectedError, err.Error())
 	}
 }

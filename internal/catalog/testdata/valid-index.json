@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "generated": "2025-11-06T15:02:01.226674",
+    "version": "1.0.0"
+  },
+  "addons": [
+    {
+      "name": "minio",
+      "description": "High Performance Object Storage",
+      "latestVersion": "14.1.2",
+      "versions": ["14.1.2"],
+      "charts": [
+        {
+          "name": "minio",
+          "versions": ["14.1.2"]
+        }
+      ],
+      "metadata": {
+        "tags": ["Storage"],
+        "owner": "k0rdent-team"
+      }
+    },
+    {
+      "name": "postgresql",
+      "description": "PostgreSQL Database",
+      "latestVersion": "12.5.8",
+      "versions": ["12.5.8", "12.5.7"],
+      "charts": [
+        {
+          "name": "postgresql",
+          "versions": ["12.5.8", "12.5.7"]
+        }
+      ],
+      "metadata": {
+        "tags": ["Database", "SQL"],
+        "owner": "k0rdent-team"
+      }
+    },
+    {
+      "name": "redis",
+      "description": "In-memory data structure store",
+      "latestVersion": "17.11.3",
+      "versions": ["17.11.3"],
+      "charts": [
+        {
+          "name": "redis",
+          "versions": ["17.11.3"]
+        },
+        {
+          "name": "redis-cluster",
+          "versions": ["8.6.2"]
+        }
+      ],
+      "metadata": {
+        "tags": ["Cache", "Database"],
+        "owner": "k0rdent-team"
+      }
+    }
+  ]
+}

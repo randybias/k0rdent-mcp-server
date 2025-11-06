@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "generated": "2025-11-06T15:02:01.226674",
+    "version": "1.0.0"
+  },
+  "addons": [
+    {
+      "name": "broken-addon",
+      "description": "Missing closing brace"

@@ -30,9 +30,10 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT
 );
 
--- Initial metadata
-INSERT OR REPLACE INTO metadata (key, value) VALUES
+-- Initial metadata (only insert if not exists - don't overwrite existing values)
+INSERT OR IGNORE INTO metadata (key, value) VALUES
     ('schema_version', '1'),
     ('catalog_sha', ''),
     ('indexed_at', ''),
-    ('catalog_url', '');
+    ('catalog_url', ''),
+    ('index_timestamp', '');
