@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/cli"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/config"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/kube"
@@ -291,6 +292,13 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 		return nil, err
 	}
 
+	catalogManager, err := catalog.NewManager(catalog.LoadConfig())
+	if err != nil {
+		_ = logManager.Close(context.Background())
+		return nil, fmt.Errorf("init catalog manager: %w", err)
+	}
+	logger.Info("catalog manager initialized")
+
 	sessionOptions := func(ctx *mcpserver.SessionContext) (*mcp.ServerOptions, error) {
 		if ctx.Values == nil {
 			ctx.Values = make(map[string]any)
@@ -339,9 +347,10 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 			}
 		}
 		return core.Register(s, session, core.Options{
-			EventManager:  eventManager,
-			PodLogManager: podLogManager,
-			GraphManager:  graphManager,
+			EventManager:   eventManager,
+			PodLogManager:  podLogManager,
+			GraphManager:   graphManager,
+			CatalogManager: catalogManager,
 		})
 	}
 

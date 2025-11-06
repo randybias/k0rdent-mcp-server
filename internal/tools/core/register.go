@@ -5,6 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
@@ -20,6 +21,7 @@ type Options struct {
     EventManager       *EventManager
     PodLogManager      *PodLogManager
     GraphManager       *GraphManager
+    CatalogManager     *catalog.Manager
 }
 
 // Register installs the core tool suite on the provided MCP server.
@@ -48,6 +50,10 @@ func Register(server *mcp.Server, session *runtime.Session, opts Options) error 
     }
 
     if err := registerGraph(server, session, opts.GraphManager); err != nil {
+        return err
+    }
+
+    if err := registerCatalog(server, session, opts.CatalogManager); err != nil {
         return err
     }
 
