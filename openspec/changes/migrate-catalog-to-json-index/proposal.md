@@ -21,43 +21,51 @@ Replace the tarball-based catalog system with a JSON index-based approach:
 
 1. **Download JSON index** from `https://catalog.k0rdent.io/latest/index.json` instead of tarball
 2. **Parse JSON directly** into catalog types (no YAML parsing, no tarball extraction)
-3. **Fetch manifests on-demand** from GitHub raw URLs when installing
-4. **Remove SQLite dependency** - store parsed JSON in memory with simple cache
-5. **Add delete tool** (`k0.catalog.delete`) for removing ServiceTemplates from namespaces
+3. **Use JSON timestamp** (`metadata.generated`) for cache invalidation instead of SHA256
+4. **Keep SQLite database** for persistent cache and future extensibility
+5. **Fetch manifests on-demand** from GitHub raw URLs when installing
+6. **Add delete tool** (`k0.catalog.delete_servicetemplate`) for removing ServiceTemplates from namespaces
+7. **Rename install tool** to `k0.catalog.install_servicetemplate` for clarity
 
 ## Benefits
 
-- **Simpler architecture**: No tarball extraction, no SQLite, no complex indexing
-- **Faster**: JSON parsing is faster than tarball + YAML + SQLite
-- **Smaller downloads**: ~100 KB JSON vs 1-5 MB tarball
-- **Less disk usage**: No extracted tarball directory tree
+- **Simpler architecture**: No tarball extraction, direct JSON parsing, simpler indexing
+- **Faster**: 18x faster download and processing (100 KB JSON vs 1-5 MB tarball)
+- **Smaller downloads**: ~100 KB JSON vs 1-5 MB tarball (10-50x reduction)
+- **Less disk usage**: No extracted tarball directory tree (~5-20 MB saved)
+- **Persistent cache**: SQLite retains cache across restarts (no re-download)
+- **Future-proof**: SQLite enables install tracking, preferences, analytics
 - **Easier testing**: Mock JSON responses instead of tar archives
 - **Complete lifecycle**: Add delete capability for end-to-end testing
+- **Clear tool names**: `install_servicetemplate` and `delete_servicetemplate` are unambiguous
 
 ## Scope
 
 ### In Scope
 - Replace tarball download with JSON index fetch
 - Parse JSON index into existing `CatalogEntry` types
+- Use JSON `metadata.generated` timestamp for cache invalidation
+- Keep SQLite database, simplify schema if beneficial
 - Fetch manifests from GitHub raw URLs on install
-- Remove SQLite database and schema
+- Rename `k0.catalog.install` to `k0.catalog.install_servicetemplate`
+- Add `k0.catalog.delete_servicetemplate` tool for removing ServiceTemplates
 - Update all unit tests with JSON fixtures
 - Update integration tests to use JSON index
-- Add `k0.catalog.delete` tool for removing ServiceTemplates
 - Update documentation
 
 ### Out of Scope
-- Changing the MCP tool API signatures (preserve backward compatibility)
-- Adding new catalog features beyond delete
+- Changing the MCP tool API response formats (preserve backward compatibility)
+- Adding new catalog features beyond delete (e.g., update, rollback)
 - Supporting offline/air-gapped modes (separate future work)
 - Signature verification (separate future work)
+- Removing SQLite database (keeping for persistent cache and extensibility)
 
 ## Migration Path
 
-The change is mostly internal - the MCP tool interface remains the same:
-- `k0.catalog.list` - Same parameters and response format
-- `k0.catalog.install` - Same parameters and response format
-- `k0.catalog.delete` - New tool with similar parameter pattern
+The change is mostly internal with one breaking change for tool naming:
+- `k0.catalog.list` - Same parameters and response format (no change)
+- `k0.catalog.install` → `k0.catalog.install_servicetemplate` - Renamed for clarity, same parameters and response format
+- `k0.catalog.delete_servicetemplate` - New tool with similar parameter pattern to install
 
 ## Risks
 
@@ -68,7 +76,10 @@ The change is mostly internal - the MCP tool interface remains the same:
    - *Mitigation*: Validate JSON structure, fail gracefully with clear errors
 
 3. **Cache invalidation**: Need to detect when JSON index changes
-   - *Mitigation*: Use ETags or Last-Modified headers, implement SHA256 hashing
+   - *Mitigation*: Use `metadata.generated` timestamp field from JSON index to track updates
+
+4. **Breaking change**: Tool rename from `k0.catalog.install` to `k0.catalog.install_servicetemplate`
+   - *Mitigation*: Document in release notes, consider deprecation period if needed
 
 ## Success Criteria
 

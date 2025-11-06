@@ -22,16 +22,16 @@ CatalogEntry[]
 
 ```
 JSON Index (~100 KB)
-    ↓ download
-In-Memory Cache (parsed JSON)
-    ↓ filter/query
+    ↓ download & parse
+SQLite Database (persistent cache)
+    ↓ query
 CatalogEntry[]
 ```
 
 **Installation Flow:**
 ```
 Install Request
-    ↓ lookup in cache
+    ↓ lookup in SQLite
 Manifest URLs (GitHub raw)
     ↓ fetch on-demand
 ServiceTemplate + HelmRepository YAML
@@ -39,10 +39,11 @@ ServiceTemplate + HelmRepository YAML
 ```
 
 **Benefits:**
-- Simple: Single HTTP fetch + JSON parse
-- Fast: Direct memory access, no disk I/O
-- Small: ~100 KB vs 1-5 MB
-- Reliable: Fewer failure points
+- Simple: Single HTTP fetch + JSON parse (no tarball extraction)
+- Fast: No tarball extraction, direct JSON parsing
+- Small: ~100 KB vs 1-5 MB download
+- Persistent: SQLite cache survives restarts
+- Extensible: Can track installs, preferences, analytics in future
 
 ## Data Mapping
 
@@ -102,20 +103,18 @@ https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-u
 
 **Remove:**
 - `extractTarball()` method
-- `buildDatabaseIndex()` dependency
-- SQLite database field
 - Tarball extraction logic
 
 **Add:**
 - `fetchJSONIndex()` method
 - `parseJSONIndex()` method
-- `indexCache` field (in-memory map)
-- `indexTimestamp` field (for TTL)
+- `indexTimestamp` field (for tracking `metadata.generated` from JSON)
 
 **Modify:**
-- `List()` - query in-memory cache instead of SQL
-- `GetManifests()` - fetch from GitHub raw URLs
-- `loadOrRefreshIndex()` - download JSON instead of tarball
+- `buildDatabaseIndex()` - parse JSON instead of YAML files, keep SQLite indexing
+- `List()` - keep existing SQL queries (no change needed)
+- `GetManifests()` - fetch from GitHub raw URLs instead of disk
+- `loadOrRefreshIndex()` - download JSON instead of tarball, check timestamp for cache invalidation
 
 ### 2. Types (internal/catalog/types.go)
 
@@ -129,24 +128,31 @@ https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-u
 - `JSONIndex` struct matching catalog JSON schema
 - `JSONAddon` struct for parsing
 - `JSONChart` struct for chart data
-
-**Remove:**
-- Database-specific types (if any internal ones exist)
+- `JSONMetadata` struct for tracking timestamp
 
 ### 3. Database (internal/catalog/database.go)
 
-**Action:** Delete entire file (no longer needed)
+**Keep:** Existing SQLite database logic
+
+**Modify (if needed):**
+- Simplify schema if beneficial
+- Add timestamp tracking field to cache metadata
 
 ### 4. Schema (internal/catalog/schema.sql)
 
-**Action:** Delete entire file (no longer needed)
+**Keep:** Existing schema
+
+**Modify (if needed):**
+- Add column for JSON index timestamp
+- Simplify if any tarball-specific fields exist
 
 ### 5. Index (internal/catalog/index.go)
 
-**Replace with:**
-- JSON parsing functions
-- Manifest URL construction
-- In-memory filtering logic
+**Modify:**
+- Replace YAML file parsing with JSON parsing
+- Add manifest URL construction for GitHub raw URLs
+- Update `buildDatabaseIndex()` to populate SQLite from JSON instead of YAML files
+- Keep SQLite query logic for filtering
 
 ### 6. Config (internal/catalog/config.go)
 
@@ -158,28 +164,33 @@ https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-u
 ### 7. Tools (internal/tools/core/catalog.go)
 
 **Add:**
-- `k0.catalog.delete` tool handler
+- `k0.catalog.delete_servicetemplate` tool handler
 - `catalogDeleteInput` type
 - `catalogDeleteResult` type
 
+**Rename:**
+- `k0.catalog.install` → `k0.catalog.install_servicetemplate`
+
 **Modify:**
-- Update `GetManifests` to fetch from URLs instead of disk
+- Update `GetManifests` to fetch from GitHub raw URLs instead of disk
 
 ### 8. Tests
 
 **Unit Tests:**
 - Replace tarball fixtures with JSON fixtures
-- Update assertions for in-memory cache
-- Remove SQLite-specific tests
+- Update assertions for JSON parsing
+- Keep SQLite-specific tests (no change needed)
+- Add timestamp-based cache invalidation tests
 
 **Integration Tests:**
-- Keep live JSON fetch tests
+- Update to use JSON index instead of tarball
 - Add delete validation tests
 - Test install → delete → verify removal flow
+- Verify SQLite cache persistence across restarts
 
 ## Delete Tool Design
 
-### Tool: k0.catalog.delete
+### Tool: k0.catalog.delete_servicetemplate
 
 **Purpose:** Remove ServiceTemplate and associated HelmRepository from namespace(s)
 
@@ -215,34 +226,35 @@ type catalogDeleteResult struct {
 
 ## Cache Strategy
 
-### In-Memory Cache
+### SQLite Persistent Cache
 
 **Structure:**
 ```go
-type indexCache struct {
-    entries     []CatalogEntry
-    sha         string
-    timestamp   time.Time
-    url         string
+type CacheMetadata struct {
+    URL              string
+    Timestamp        time.Time  // When we fetched it
+    IndexTimestamp   string     // metadata.generated from JSON
+    LastCheck        time.Time  // Last time we checked for updates
 }
 ```
 
 **Invalidation:**
-1. Check cache age against TTL
-2. If expired, fetch JSON with If-None-Match (ETag)
-3. If 304 Not Modified, refresh timestamp
-4. If 200 OK, parse and rebuild cache
-5. Use SHA256 of JSON content for change detection
+1. Check cache age against TTL (e.g., 1 hour)
+2. If expired, fetch JSON index
+3. Compare `metadata.generated` timestamp from JSON with cached `IndexTimestamp`
+4. If timestamps match, update `LastCheck` only (no rebuild)
+5. If timestamps differ, parse JSON and rebuild SQLite index
 
 ### Cache Key
 
-**Current:** `catalog-<tarball-sha>` directory
-**New:** SHA256 hash of JSON content
+**Current:** `catalog-<tarball-sha>` directory on disk
+**New:** Single SQLite database with timestamp tracking
 
 **Benefits:**
-- Automatic invalidation when JSON changes
-- No disk cleanup needed (just memory)
-- ETag support for efficient checks
+- Persistent cache across restarts (no re-download)
+- Simple timestamp comparison (no hashing needed)
+- Future extensibility for tracking installs, preferences
+- Query capabilities for filtering and search
 
 ## Error Handling
 
@@ -305,27 +317,25 @@ type indexCache struct {
 
 ## Migration Strategy
 
-### Phase 1: Implement New System (Parallel)
+### Single-Phase Migration
 
-1. Create new JSON-based manager in separate package
-2. Add feature flag to toggle between implementations
-3. Run both in parallel during testing
-4. Compare results for consistency
+Since we're keeping SQLite and the same database schema, migration is straightforward:
 
-### Phase 2: Switch Default
+1. **Update data source**: Change from tarball extraction to JSON index fetch
+2. **Update parsing logic**: Replace YAML file parsing with JSON parsing
+3. **Update manifest fetching**: Change from disk reads to GitHub raw URL fetches
+4. **Add delete tool**: Implement `k0.catalog.delete_servicetemplate`
+5. **Rename install tool**: `k0.catalog.install` → `k0.catalog.install_servicetemplate`
+6. **Update tests**: Replace tarball fixtures with JSON fixtures
+7. **Verify**: Run all unit and integration tests
 
-1. Make JSON implementation the default
-2. Keep tarball as fallback option
-3. Monitor for issues in production
+**Benefits of keeping SQLite:**
+- No data migration needed
+- Database structure stays the same
+- Existing query logic continues to work
+- Can be done in single PR
 
-### Phase 3: Remove Old System
-
-1. Remove tarball implementation
-2. Remove SQLite dependency
-3. Clean up old test fixtures
-4. Update documentation
-
-**Timeline:** Can be done in single PR if tests pass
+**Timeline:** Single PR with comprehensive testing
 
 ## Performance Comparison
 
@@ -350,9 +360,9 @@ type indexCache struct {
 
 | Component | Tarball | JSON Index | Change |
 |-----------|---------|------------|--------|
-| SQLite DB | ~2 MB | 0 MB | Eliminated |
-| Index | ~500 KB | ~200 KB | 2.5x smaller |
-| Disk | 5-20 MB | 0 MB | Eliminated |
+| SQLite DB | ~2 MB | ~2 MB | Same (kept for persistence) |
+| Extracted Tarball | 5-20 MB | 0 MB | Eliminated |
+| Total Disk | 7-22 MB | ~2 MB | 3.5-11x smaller |
 
 ## Testing Strategy
 

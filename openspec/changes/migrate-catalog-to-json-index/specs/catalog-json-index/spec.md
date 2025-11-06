@@ -27,53 +27,53 @@ The catalog manager **SHALL** download the catalog index from `https://catalog.k
 - **THEN** it returns an error indicating JSON parse failure
 - **AND** includes details about the parse error
 
-### Requirement: Catalog manager SHALL cache parsed index in memory
+### Requirement: Catalog manager SHALL cache parsed index in SQLite database
 
-The catalog manager **SHALL** store the parsed catalog index in memory instead of using an SQLite database.
+The catalog manager **SHALL** store the parsed catalog index in SQLite database for persistent caching across restarts.
 
 #### Scenario: First request builds cache
 
-- **GIVEN** the catalog manager has no cached index
+- **GIVEN** the catalog manager has no cached index in SQLite
 - **WHEN** `List()` is called
 - **THEN** it fetches the JSON index
-- **AND** parses all addons into memory
-- **AND** caches the result with timestamp and SHA256
+- **AND** parses all addons into SQLite database
+- **AND** stores the `metadata.generated` timestamp in cache metadata
 
 #### Scenario: Subsequent requests use cache
 
-- **GIVEN** the catalog manager has a valid cached index
+- **GIVEN** the catalog manager has a valid cached index in SQLite
 - **AND** the cache is within TTL period
 - **WHEN** `List()` is called
-- **THEN** it returns results from memory
+- **THEN** it returns results from SQLite queries
 - **AND** does not fetch from the network
 
 #### Scenario: Expired cache triggers refresh
 
-- **GIVEN** the catalog manager has a cached index
+- **GIVEN** the catalog manager has a cached index in SQLite
 - **AND** the cache age exceeds TTL
 - **WHEN** `List()` is called
 - **THEN** it fetches a fresh JSON index
-- **AND** rebuilds the in-memory cache
+- **AND** rebuilds the SQLite database if timestamp changed
 
-### Requirement: Catalog manager SHALL detect index changes via SHA256
+### Requirement: Catalog manager SHALL detect index changes via timestamp
 
-The catalog manager **SHALL** compute SHA256 hash of JSON content to detect changes.
+The catalog manager **SHALL** use the `metadata.generated` timestamp from JSON to detect changes.
 
-#### Scenario: Unchanged index with ETag
+#### Scenario: Unchanged index timestamp
 
-- **GIVEN** the catalog manager has cached index with SHA256
-- **WHEN** it fetches with If-None-Match header
-- **AND** the server returns 304 Not Modified
-- **THEN** it updates the cache timestamp only
+- **GIVEN** the catalog manager has cached index with timestamp
+- **WHEN** it fetches the JSON index after TTL expiry
+- **AND** the `metadata.generated` field matches cached timestamp
+- **THEN** it updates the last check time only
 - **AND** does not rebuild the index
 
-#### Scenario: Changed index content
+#### Scenario: Changed index timestamp
 
-- **GIVEN** the catalog manager has cached index with SHA256
+- **GIVEN** the catalog manager has cached index with timestamp
 - **WHEN** it fetches the index
-- **AND** the new content has different SHA256
-- **THEN** it rebuilds the cache with new data
-- **AND** stores the new SHA256
+- **AND** the new `metadata.generated` field has different timestamp
+- **THEN** it rebuilds the SQLite cache with new data
+- **AND** stores the new timestamp
 
 ### Requirement: Catalog manager SHALL fetch manifests on-demand from GitHub
 
@@ -102,52 +102,34 @@ The catalog manager **SHALL** fetch ServiceTemplate and HelmRepository manifests
 - **THEN** it returns an error indicating manifest not found
 - **AND** includes the full URL that was attempted
 
-### Requirement: Catalog manager SHALL NOT use SQLite database
+### Requirement: Catalog manager SHALL use SQLite database for persistent cache
 
-The catalog manager **SHALL NOT** create, read, or write to an SQLite database file.
+The catalog manager **SHALL** continue using the SQLite database for persistent caching.
 
-#### Scenario: No database file created
+#### Scenario: Database persists across restarts
 
-- **GIVEN** a fresh cache directory
-- **WHEN** the catalog manager initializes
-- **THEN** no `catalog.db` file is created
-- **AND** no SQL schema is executed
+- **GIVEN** the catalog manager has cached data in SQLite
+- **WHEN** the server restarts
+- **THEN** the catalog manager reads existing cache from SQLite
+- **AND** does not need to re-download the JSON index if timestamp is current
 
-#### Scenario: No SQL queries executed
+#### Scenario: SQL queries work with JSON-sourced data
 
-- **GIVEN** the catalog manager is operational
-- **WHEN** any catalog operation is performed
-- **THEN** no SQL queries are constructed or executed
-- **AND** all data is accessed from in-memory structures
-
-### Requirement: Catalog manager SHALL support ETag caching
-
-The catalog manager **SHALL** use HTTP ETag headers to minimize redundant downloads.
-
-#### Scenario: Initial fetch stores ETag
-
-- **GIVEN** the JSON index endpoint returns an ETag header
-- **WHEN** the catalog manager fetches the index
-- **THEN** it stores the ETag value with the cache
-- **AND** uses it for subsequent conditional requests
-
-#### Scenario: Conditional request with ETag
-
-- **GIVEN** the catalog manager has a cached index with ETag
-- **WHEN** it checks for updates
-- **THEN** it sends If-None-Match header with stored ETag
-- **AND** handles 304 Not Modified appropriately
+- **GIVEN** the catalog manager has populated SQLite from JSON index
+- **WHEN** `List()` is called with filters
+- **THEN** it executes SQL queries as before
+- **AND** returns filtered results efficiently
 
 ## ADDED Requirements
 
 ### Requirement: Delete tool SHALL remove ServiceTemplates from namespaces
 
-The `k0.catalog.delete` tool **SHALL** remove ServiceTemplate and associated HelmRepository resources from specified namespace(s).
+The `k0.catalog.delete_servicetemplate` tool **SHALL** remove ServiceTemplate and associated HelmRepository resources from specified namespace(s).
 
 #### Scenario: Delete from specific namespace
 
 - **GIVEN** a ServiceTemplate exists in namespace "kcm-system"
-- **WHEN** `k0.catalog.delete` is called with namespace "kcm-system"
+- **WHEN** `k0.catalog.delete_servicetemplate` is called with namespace "kcm-system"
 - **THEN** it deletes the ServiceTemplate resource
 - **AND** optionally deletes the HelmRepository
 - **AND** returns list of deleted resources
@@ -155,28 +137,28 @@ The `k0.catalog.delete` tool **SHALL** remove ServiceTemplate and associated Hel
 #### Scenario: Delete from all allowed namespaces
 
 - **GIVEN** a ServiceTemplate exists in multiple namespaces
-- **WHEN** `k0.catalog.delete` is called with `all_namespaces: true`
+- **WHEN** `k0.catalog.delete_servicetemplate` is called with `all_namespaces: true`
 - **THEN** it deletes the ServiceTemplate from each allowed namespace
 - **AND** returns list of all deleted resources
 
 #### Scenario: Namespace filter applies to delete
 
 - **GIVEN** the server has namespace filter configured
-- **WHEN** `k0.catalog.delete` is called for a filtered namespace
+- **WHEN** `k0.catalog.delete_servicetemplate` is called for a filtered namespace
 - **THEN** it validates the namespace against the filter
 - **AND** returns error if namespace is not allowed
 
 #### Scenario: Resource not found is not an error
 
 - **GIVEN** a ServiceTemplate does not exist in the target namespace
-- **WHEN** `k0.catalog.delete` is called
+- **WHEN** `k0.catalog.delete_servicetemplate` is called
 - **THEN** it returns success with empty deleted list
 - **AND** includes status "not_found"
 
 #### Scenario: Delete requires same namespace rules as install
 
 - **GIVEN** the server is in OIDC_REQUIRED mode
-- **WHEN** `k0.catalog.delete` is called without namespace parameter
+- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it returns error requiring explicit namespace
 - **AND** error message matches install tool pattern
 
@@ -188,7 +170,7 @@ The delete tool **SHALL** respect DEV_ALLOW_ANY and OIDC_REQUIRED authentication
 
 - **GIVEN** the server is in DEV_ALLOW_ANY mode
 - **AND** no namespace filter is configured
-- **WHEN** `k0.catalog.delete` is called without namespace parameter
+- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it defaults to namespace "kcm-system"
 - **AND** proceeds with deletion
 
@@ -196,7 +178,7 @@ The delete tool **SHALL** respect DEV_ALLOW_ANY and OIDC_REQUIRED authentication
 
 - **GIVEN** the server is in OIDC_REQUIRED mode
 - **AND** namespace filter is restrictive
-- **WHEN** `k0.catalog.delete` is called without namespace parameter
+- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it returns error requiring namespace specification
 - **AND** error message includes "OIDC_REQUIRED mode"
 
@@ -207,7 +189,7 @@ The delete tool **SHALL** return success even if resources are already deleted.
 #### Scenario: Delete already deleted resource
 
 - **GIVEN** a ServiceTemplate was previously deleted
-- **WHEN** `k0.catalog.delete` is called again
+- **WHEN** `k0.catalog.delete_servicetemplate` is called again
 - **THEN** it returns success with status "not_found"
 - **AND** does not throw an error
 
@@ -218,8 +200,8 @@ Integration tests **SHALL** test the full install → delete → verify cycle.
 #### Scenario: Install and delete ServiceTemplate
 
 - **GIVEN** a clean test namespace
-- **WHEN** `k0.catalog.install` creates a ServiceTemplate
-- **AND** `k0.catalog.delete` removes it
+- **WHEN** `k0.catalog.install_servicetemplate` creates a ServiceTemplate
+- **AND** `k0.catalog.delete_servicetemplate` removes it
 - **THEN** the ServiceTemplate no longer exists in the namespace
 - **AND** reinstallation succeeds
 
@@ -229,10 +211,6 @@ Integration tests **SHALL** test the full install → delete → verify cycle.
 
 **REMOVED** - No longer extracting tarballs; using JSON index directly.
 
-### Requirement: ~~Catalog manager SHALL build SQLite index~~
-
-**REMOVED** - No longer using SQLite; storing parsed JSON in memory.
-
 ### Requirement: ~~Catalog manager SHALL parse YAML files from disk~~
 
-**REMOVED** - No longer reading YAML from disk; fetching manifests on-demand from GitHub.
+**REMOVED** - No longer reading YAML from disk for catalog index; fetching manifests on-demand from GitHub for installation.
