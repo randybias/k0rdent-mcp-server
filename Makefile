@@ -17,3 +17,8 @@ test:
 
 run: build
 	./bin/$(BINARY)
+.PHONY: test-live
+
+## test-live: Run live integration tests (requires MCP server + env vars)
+test-live:
+	go test -tags=live ./test/integration

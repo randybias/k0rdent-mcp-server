@@ -1,0 +1,5 @@
+- [x] T1 Introduce shared live test helpers (env validation, MCP handshake, SSE parsing) under `test/integration`.
+- [x] T2 Add live tests covering namespaces list, pod log retrieval, and k0rdent CRD listing using the helpers.
+- [x] T3 Update live test documentation to reference the helpers and enumerate the expanded coverage.
+- [x] T4 Provide guidance for future live tests to reuse the helpers and fail fast on missing configuration.
+- [x] T5 Validate with `go test ./...`, `go test -tags=live ./test/integration` (when possible), and `openspec validate extend-live-cluster-tests --strict`.

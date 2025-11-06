@@ -1,4 +1,4 @@
-- [ ] T1 Scaffold integration test package with build tag (e.g., `live`).
-- [ ] T2 Implement tests that connect to the MCP server against a real cluster (namespace listing minimum) using env-sourced config.
-- [ ] T3 Add documentation/instructions (Make target or README snippet) for running the live test suite.
-- [ ] T4 Ensure tests skip when env vars are missing and run successfully against provided cluster; validate with `openspec validate add-live-cluster-tests --strict`.
+- [x] T1 Scaffold integration test package with build tag (e.g., `live`).
+- [x] T2 Implement tests that connect to the MCP server against a real cluster (namespace listing minimum) using env-sourced config.
+- [x] T3 Add documentation/instructions (Make target or README snippet) for running the live test suite.
+- [x] T4 Ensure tests skip when env vars are missing and run successfully against provided cluster; validate with `openspec validate add-live-cluster-tests --strict`.
