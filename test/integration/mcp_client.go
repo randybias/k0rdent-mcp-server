@@ -103,7 +103,21 @@ func (c *liveClient) initialize(t testing.TB) string {
 
 func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]any) json.RawMessage {
     t.Helper()
+    result, err := c.callToolInternal(name, arguments)
+    if err != nil {
+        t.Fatalf("%v", err)
+    }
+    return result
+}
 
+// CallToolSafe calls an MCP tool but returns errors instead of failing the test.
+// Use this for cleanup operations where failures should be logged but not fail the test.
+func (c *liveClient) CallToolSafe(name string, arguments map[string]any) (json.RawMessage, error) {
+    return c.callToolInternal(name, arguments)
+}
+
+// callToolInternal is the shared implementation for CallTool and CallToolSafe
+func (c *liveClient) callToolInternal(name string, arguments map[string]any) (json.RawMessage, error) {
     reqBody := map[string]any{
         "jsonrpc": "2.0",
         "id":      time.Now().UnixNano(),
@@ -116,7 +130,7 @@ func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]an
 
     payload, err := json.Marshal(reqBody)
     if err != nil {
-        t.Fatalf("marshal call request: %v", err)
+        return nil, fmt.Errorf("marshal call request: %w", err)
     }
 
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -124,7 +138,7 @@ func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]an
 
     req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(payload))
     if err != nil {
-        t.Fatalf("create call request: %v", err)
+        return nil, fmt.Errorf("create call request: %w", err)
     }
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("Accept", "application/json, text/event-stream")
@@ -133,24 +147,24 @@ func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]an
 
     resp, err := c.httpClient.Do(req)
     if err != nil {
-        t.Fatalf("%s", formatLiveFailure(fmt.Sprintf("call tool %s", name), err))
+        return nil, fmt.Errorf("%s", formatLiveFailure(fmt.Sprintf("call tool %s", name), err))
     }
     defer resp.Body.Close()
 
     if resp.StatusCode != http.StatusOK {
         buf := new(bytes.Buffer)
         _, _ = buf.ReadFrom(resp.Body)
-        t.Fatalf("%s returned status %d: %s", name, resp.StatusCode, strings.TrimSpace(buf.String()))
+        return nil, fmt.Errorf("%s returned status %d: %s", name, resp.StatusCode, strings.TrimSpace(buf.String()))
     }
 
     bodyBytes, err := io.ReadAll(resp.Body)
     if err != nil {
-        t.Fatalf("read %s response: %v", name, err)
+        return nil, fmt.Errorf("read %s response: %w", name, err)
     }
 
     payloadBytes, err := extractSSEPayload(bodyBytes)
     if err != nil {
-        t.Fatalf("parse %s SSE: %v (body: %s)", name, err, string(bodyBytes))
+        return nil, fmt.Errorf("parse SSE: %w (body: %s)", err, string(bodyBytes))
     }
 
     var rpcResp struct {
@@ -159,14 +173,14 @@ func (c *liveClient) CallTool(t testing.TB, name string, arguments map[string]an
         } `json:"result"`
     }
     if err := json.Unmarshal(payloadBytes, &rpcResp); err != nil {
-        t.Fatalf("decode %s response: %v (payload: %s)", name, err, string(payloadBytes))
+        return nil, fmt.Errorf("decode %s response: %w (payload: %s)", name, err, string(payloadBytes))
     }
 
     if rpcResp.Result.Structured == nil {
-        t.Fatalf("%s returned nil structured content", name)
+        return nil, fmt.Errorf("%s returned nil structured content", name)
     }
 
-    return rpcResp.Result.Structured
+    return rpcResp.Result.Structured, nil
 }
 
 func extractSSEPayload(body []byte) ([]byte, error) {

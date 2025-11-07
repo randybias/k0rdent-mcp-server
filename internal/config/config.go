@@ -27,6 +27,10 @@ const (
 	envAuthMode       = "AUTH_MODE"
 	envLogLevel       = "LOG_LEVEL"
 	envLogSinkEnabled = "LOG_EXTERNAL_SINK_ENABLED"
+
+	envClusterGlobalNamespace       = "CLUSTER_GLOBAL_NAMESPACE"
+	envClusterDefaultNamespaceDev   = "CLUSTER_DEFAULT_NAMESPACE_DEV"
+	envClusterDeployFieldOwner      = "CLUSTER_DEPLOY_FIELD_OWNER"
 )
 
 // AuthMode determines how incoming requests are authenticated.
@@ -62,12 +66,20 @@ type Settings struct {
 	Source          SourceType
 	RawConfig       *clientcmdapi.Config
 	Logging         LoggingSettings
+	Cluster         ClusterSettings
 }
 
 // LoggingSettings describe how structured logging is configured.
 type LoggingSettings struct {
 	Level               slog.Level
 	ExternalSinkEnabled bool
+}
+
+// ClusterSettings describe cluster provisioning configuration.
+type ClusterSettings struct {
+	GlobalNamespace       string
+	DefaultNamespaceDev   string
+	DeployFieldOwner      string
 }
 
 // Loader loads runtime configuration from the environment and validates cluster access.
@@ -138,6 +150,7 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 	}
 
 	loggingSettings := l.resolveLogging(log)
+	clusterSettings := l.resolveCluster()
 
 	overrides := &clientcmd.ConfigOverrides{
 		CurrentContext: contextName,
@@ -170,6 +183,7 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 		Source:          source,
 		RawConfig:       cfg,
 		Logging:         loggingSettings,
+		Cluster:         clusterSettings,
 	}, nil
 }
 
@@ -289,6 +303,28 @@ func (l *Loader) resolveLogging(logger *slog.Logger) LoggingSettings {
 			"level", settings.Level.String(),
 			"external_sink_enabled", settings.ExternalSinkEnabled,
 		)
+	}
+
+	return settings
+}
+
+func (l *Loader) resolveCluster() ClusterSettings {
+	settings := ClusterSettings{
+		GlobalNamespace:     "kcm-system",
+		DefaultNamespaceDev: "kcm-system",
+		DeployFieldOwner:    "mcp.clusters",
+	}
+
+	if raw, ok := l.envLookup(envClusterGlobalNamespace); ok && strings.TrimSpace(raw) != "" {
+		settings.GlobalNamespace = strings.TrimSpace(raw)
+	}
+
+	if raw, ok := l.envLookup(envClusterDefaultNamespaceDev); ok && strings.TrimSpace(raw) != "" {
+		settings.DefaultNamespaceDev = strings.TrimSpace(raw)
+	}
+
+	if raw, ok := l.envLookup(envClusterDeployFieldOwner); ok && strings.TrimSpace(raw) != "" {
+		settings.DeployFieldOwner = strings.TrimSpace(raw)
 	}
 
 	return settings

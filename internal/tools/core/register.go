@@ -57,5 +57,9 @@ func Register(server *mcp.Server, session *runtime.Session, opts Options) error 
         return err
     }
 
+    if err := registerClusters(server, session); err != nil {
+        return err
+    }
+
     return nil
 }
