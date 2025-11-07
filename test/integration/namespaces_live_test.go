@@ -16,7 +16,7 @@ type namespaceListResult struct {
 func TestNamespacesListLive(t *testing.T) {
     client := newLiveClient(t)
 
-    raw := client.CallTool(t, "k0.namespaces.list", map[string]any{})
+    raw := client.CallTool(t, "k0rdent.namespaces.list", map[string]any{})
 
     var result namespaceListResult
     if err := json.Unmarshal(raw, &result); err != nil {

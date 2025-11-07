@@ -10,17 +10,17 @@ Implemented cluster provisioning tools for the k0rdent MCP server, including cre
 
 Original tool names were semantically incorrect. Changed to:
 
-- `k0.providers.listCredentials` (was `k0.clusters.listCredentials`) - Credentials are for providers, not clusters
-- `k0.clusterTemplates.list` (was `k0.clusters.listTemplates`) - More explicit naming
-- `k0.clusters.list` (NEW) - Lists ClusterDeployments (plural - lists ALL clusters)
-- `k0.cluster.deploy` (was `k0.clusters.deploy`) - Singular - deploys ONE cluster
-- `k0.cluster.delete` (was `k0.clusters.delete`) - Singular - deletes ONE cluster
+- `k0rdent.providers.listCredentials` (was `k0rdent.clusters.listCredentials`) - Credentials are for providers, not clusters
+- `k0rdent.clusterTemplates.list` (was `k0rdent.clusters.listTemplates`) - More explicit naming
+- `k0rdent.clusters.list` (NEW) - Lists ClusterDeployments (plural - lists ALL clusters)
+- `k0rdent.cluster.deploy` (was `k0rdent.clusters.deploy`) - Singular - deploys ONE cluster
+- `k0rdent.cluster.delete` (was `k0rdent.clusters.delete`) - Singular - deletes ONE cluster
 
 **Rationale**: Singular vs plural naming indicates whether the tool operates on one resource or lists multiple resources.
 
 ### 2. Wait Parameters (User Requirement)
 
-Added optional wait parameters to `k0.cluster.deploy` tool:
+Added optional wait parameters to `k0rdent.cluster.deploy` tool:
 
 ```go
 type clustersDeployInput struct {
@@ -101,7 +101,7 @@ Updated default timeouts based on user feedback:
 
 ### 8. Optional Wait for Deletion (User Requirement)
 
-Added optional wait parameters to `k0.cluster.delete` tool:
+Added optional wait parameters to `k0rdent.cluster.delete` tool:
 
 ```go
 type clustersDeleteInput struct {

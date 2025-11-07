@@ -64,7 +64,7 @@ func TestCatalogListLive(t *testing.T) {
 
 	client := newLiveClient(t)
 
-	raw := client.CallTool(t, "k0.catalog.list", map[string]any{})
+	raw := client.CallTool(t, "k0rdent.catalog.list", map[string]any{})
 	var result catalogListResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode catalog list result: %v", err)
@@ -128,7 +128,7 @@ func TestCatalogListWithFilterLive(t *testing.T) {
 	client := newLiveClient(t)
 
 	// First, get all entries to find a valid app
-	raw := client.CallTool(t, "k0.catalog.list", map[string]any{})
+	raw := client.CallTool(t, "k0rdent.catalog.list", map[string]any{})
 	var allResult catalogListResult
 	if err := json.Unmarshal(raw, &allResult); err != nil {
 		t.Fatalf("decode catalog list result: %v", err)
@@ -143,7 +143,7 @@ func TestCatalogListWithFilterLive(t *testing.T) {
 	t.Logf("Testing filter with app: %s", testApp)
 
 	// Now filter by that app
-	raw = client.CallTool(t, "k0.catalog.list", map[string]any{
+	raw = client.CallTool(t, "k0rdent.catalog.list", map[string]any{
 		"app": testApp,
 	})
 	var filtered catalogListResult
@@ -174,7 +174,7 @@ func TestCatalogListRefreshLive(t *testing.T) {
 	client := newLiveClient(t)
 
 	// First call without refresh
-	raw1 := client.CallTool(t, "k0.catalog.list", map[string]any{})
+	raw1 := client.CallTool(t, "k0rdent.catalog.list", map[string]any{})
 	var result1 catalogListResult
 	if err := json.Unmarshal(raw1, &result1); err != nil {
 		t.Fatalf("decode first result: %v", err)
@@ -187,7 +187,7 @@ func TestCatalogListRefreshLive(t *testing.T) {
 	t.Logf("First call returned %d entries", len(result1.Entries))
 
 	// Second call with refresh=true
-	raw2 := client.CallTool(t, "k0.catalog.list", map[string]any{
+	raw2 := client.CallTool(t, "k0rdent.catalog.list", map[string]any{
 		"refresh": true,
 	})
 	var result2 catalogListResult
@@ -242,7 +242,7 @@ func TestCatalogInstallNginxIngressLive(t *testing.T) {
 
 	// 1. Find nginx ingress in catalog
 	t.Log("Searching for nginx ingress in catalog...")
-	raw := client.CallTool(t, "k0.catalog.list", map[string]any{})
+	raw := client.CallTool(t, "k0rdent.catalog.list", map[string]any{})
 	var catalogResult catalogListResult
 	if err := json.Unmarshal(raw, &catalogResult); err != nil {
 		t.Fatalf("decode catalog: %v", err)
@@ -263,7 +263,7 @@ func TestCatalogInstallNginxIngressLive(t *testing.T) {
 
 	// 2. Install nginx ingress
 	t.Log("Installing ingress-nginx ServiceTemplate...")
-	installRaw := client.CallTool(t, "k0.catalog.install_servicetemplate", map[string]any{
+	installRaw := client.CallTool(t, "k0rdent.catalog.install_servicetemplate", map[string]any{
 		"app":      "ingress-nginx",
 		"template": version.Name,
 		"version":  version.Version,
@@ -375,7 +375,7 @@ func TestCatalogInstallIdempotencyLive(t *testing.T) {
 	cleanupServiceTemplate(t, dynamicClient, serviceTemplateName, testNamespace)
 
 	// Find a lightweight app to test with (prefer minio)
-	raw := client.CallTool(t, "k0.catalog.list", map[string]any{
+	raw := client.CallTool(t, "k0rdent.catalog.list", map[string]any{
 		"app": "minio",
 	})
 	var catalogResult catalogListResult
@@ -397,7 +397,7 @@ func TestCatalogInstallIdempotencyLive(t *testing.T) {
 
 	// First install
 	t.Log("First install...")
-	raw1 := client.CallTool(t, "k0.catalog.install_servicetemplate", map[string]any{
+	raw1 := client.CallTool(t, "k0rdent.catalog.install_servicetemplate", map[string]any{
 		"app":      entry.Slug,
 		"template": version.Name,
 		"version":  version.Version,
@@ -415,7 +415,7 @@ func TestCatalogInstallIdempotencyLive(t *testing.T) {
 
 	// Second install (should be idempotent)
 	t.Log("Second install (idempotency check)...")
-	raw2 := client.CallTool(t, "k0.catalog.install_servicetemplate", map[string]any{
+	raw2 := client.CallTool(t, "k0rdent.catalog.install_servicetemplate", map[string]any{
 		"app":      entry.Slug,
 		"template": version.Name,
 		"version":  version.Version,
@@ -464,7 +464,7 @@ func TestCatalogLifecycleLive(t *testing.T) {
 
 	// 1. Find minio in catalog
 	t.Log("Step 1: Finding minio in catalog...")
-	raw := client.CallTool(t, "k0.catalog.list", map[string]any{
+	raw := client.CallTool(t, "k0rdent.catalog.list", map[string]any{
 		"app": appSlug,
 	})
 	var catalogResult catalogListResult
@@ -486,7 +486,7 @@ func TestCatalogLifecycleLive(t *testing.T) {
 
 	// 2. Install ServiceTemplate
 	t.Log("Step 2: Installing ServiceTemplate...")
-	installRaw := client.CallTool(t, "k0.catalog.install_servicetemplate", map[string]any{
+	installRaw := client.CallTool(t, "k0rdent.catalog.install_servicetemplate", map[string]any{
 		"app":      appSlug,
 		"template": version.Name,
 		"version":  version.Version,
@@ -519,7 +519,7 @@ func TestCatalogLifecycleLive(t *testing.T) {
 
 	// 4. Delete ServiceTemplate
 	t.Log("Step 4: Deleting ServiceTemplate...")
-	deleteRaw := client.CallTool(t, "k0.catalog.delete_servicetemplate", map[string]any{
+	deleteRaw := client.CallTool(t, "k0rdent.catalog.delete_servicetemplate", map[string]any{
 		"app":      appSlug,
 		"template": version.Name,
 		"version":  version.Version,

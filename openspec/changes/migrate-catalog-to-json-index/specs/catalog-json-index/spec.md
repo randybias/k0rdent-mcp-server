@@ -124,12 +124,12 @@ The catalog manager **SHALL** continue using the SQLite database for persistent 
 
 ### Requirement: Delete tool SHALL remove ServiceTemplates from namespaces
 
-The `k0.catalog.delete_servicetemplate` tool **SHALL** remove ServiceTemplate and associated HelmRepository resources from specified namespace(s).
+The `k0rdent.catalog.delete_servicetemplate` tool **SHALL** remove ServiceTemplate and associated HelmRepository resources from specified namespace(s).
 
 #### Scenario: Delete from specific namespace
 
 - **GIVEN** a ServiceTemplate exists in namespace "kcm-system"
-- **WHEN** `k0.catalog.delete_servicetemplate` is called with namespace "kcm-system"
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called with namespace "kcm-system"
 - **THEN** it deletes the ServiceTemplate resource
 - **AND** optionally deletes the HelmRepository
 - **AND** returns list of deleted resources
@@ -137,28 +137,28 @@ The `k0.catalog.delete_servicetemplate` tool **SHALL** remove ServiceTemplate an
 #### Scenario: Delete from all allowed namespaces
 
 - **GIVEN** a ServiceTemplate exists in multiple namespaces
-- **WHEN** `k0.catalog.delete_servicetemplate` is called with `all_namespaces: true`
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called with `all_namespaces: true`
 - **THEN** it deletes the ServiceTemplate from each allowed namespace
 - **AND** returns list of all deleted resources
 
 #### Scenario: Namespace filter applies to delete
 
 - **GIVEN** the server has namespace filter configured
-- **WHEN** `k0.catalog.delete_servicetemplate` is called for a filtered namespace
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called for a filtered namespace
 - **THEN** it validates the namespace against the filter
 - **AND** returns error if namespace is not allowed
 
 #### Scenario: Resource not found is not an error
 
 - **GIVEN** a ServiceTemplate does not exist in the target namespace
-- **WHEN** `k0.catalog.delete_servicetemplate` is called
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called
 - **THEN** it returns success with empty deleted list
 - **AND** includes status "not_found"
 
 #### Scenario: Delete requires same namespace rules as install
 
 - **GIVEN** the server is in OIDC_REQUIRED mode
-- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it returns error requiring explicit namespace
 - **AND** error message matches install tool pattern
 
@@ -170,7 +170,7 @@ The delete tool **SHALL** respect DEV_ALLOW_ANY and OIDC_REQUIRED authentication
 
 - **GIVEN** the server is in DEV_ALLOW_ANY mode
 - **AND** no namespace filter is configured
-- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it defaults to namespace "kcm-system"
 - **AND** proceeds with deletion
 
@@ -178,7 +178,7 @@ The delete tool **SHALL** respect DEV_ALLOW_ANY and OIDC_REQUIRED authentication
 
 - **GIVEN** the server is in OIDC_REQUIRED mode
 - **AND** namespace filter is restrictive
-- **WHEN** `k0.catalog.delete_servicetemplate` is called without namespace parameter
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called without namespace parameter
 - **THEN** it returns error requiring namespace specification
 - **AND** error message includes "OIDC_REQUIRED mode"
 
@@ -189,7 +189,7 @@ The delete tool **SHALL** return success even if resources are already deleted.
 #### Scenario: Delete already deleted resource
 
 - **GIVEN** a ServiceTemplate was previously deleted
-- **WHEN** `k0.catalog.delete_servicetemplate` is called again
+- **WHEN** `k0rdent.catalog.delete_servicetemplate` is called again
 - **THEN** it returns success with status "not_found"
 - **AND** does not throw an error
 
@@ -200,8 +200,8 @@ Integration tests **SHALL** test the full install → delete → verify cycle.
 #### Scenario: Install and delete ServiceTemplate
 
 - **GIVEN** a clean test namespace
-- **WHEN** `k0.catalog.install_servicetemplate` creates a ServiceTemplate
-- **AND** `k0.catalog.delete_servicetemplate` removes it
+- **WHEN** `k0rdent.catalog.install_servicetemplate` creates a ServiceTemplate
+- **AND** `k0rdent.catalog.delete_servicetemplate` removes it
 - **THEN** the ServiceTemplate no longer exists in the namespace
 - **AND** reinstallation succeeds
 

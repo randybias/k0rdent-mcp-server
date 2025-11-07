@@ -84,7 +84,7 @@ func TestNamespacesHandleLogs(t *testing.T) {
 	}
 
 	tool := &namespacesTool{session: session}
-	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "k0.namespaces.list"}}
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "k0rdent.namespaces.list"}}
 	if _, _, err := tool.handle(context.Background(), req, namespaceListInput{}); err != nil {
 		t.Fatalf("handle returned error: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestNamespacesHandleLogs(t *testing.T) {
 	if entry.Message != "namespaces listed" {
 		t.Fatalf("unexpected log message %q", entry.Message)
 	}
-	if entry.Attributes["tool"] != "k0.namespaces.list" {
+	if entry.Attributes["tool"] != "k0rdent.namespaces.list" {
 		t.Fatalf("expected tool attribute, got %#v", entry.Attributes)
 	}
 }

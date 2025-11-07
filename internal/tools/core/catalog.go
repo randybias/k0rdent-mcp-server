@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
@@ -74,19 +74,19 @@ func registerCatalog(server *mcp.Server, session *runtime.Session, manager *cata
 
 	listTool := &catalogListTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.catalog.list",
+		Name:        "k0rdent.catalog.list",
 		Description: "List available ServiceTemplates from the k0rdent catalog",
 	}, listTool.list)
 
 	installTool := &catalogInstallTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.catalog.install_servicetemplate",
+		Name:        "k0rdent.catalog.install_servicetemplate",
 		Description: "Install a ServiceTemplate from the k0rdent catalog. In DEV_ALLOW_ANY mode (uses kubeconfig), installs to kcm-system by default. In OIDC_REQUIRED mode (uses bearer token), requires explicit namespace or all_namespaces flag.",
 	}, installTool.install)
 
 	deleteTool := &catalogDeleteServiceTemplateTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.catalog.delete_servicetemplate",
+		Name:        "k0rdent.catalog.delete_servicetemplate",
 		Description: "Delete a ServiceTemplate and optionally its HelmRepository from k0rdent catalog. Follows same authentication modes as install (DEV_ALLOW_ANY, OIDC_REQUIRED). Returns success even if resource not found (idempotent).",
 	}, deleteTool.delete)
 
@@ -163,23 +163,23 @@ func (t *catalogInstallTool) install(ctx context.Context, req *mcp.CallToolReque
 		logger.Debug("installing to namespace", "tool", name, "namespace", targetNS)
 
 		for i, manifest := range manifests {
-		// Parse YAML to unstructured
-		obj := &unstructured.Unstructured{}
-		if err := yaml.Unmarshal(manifest, &obj.Object); err != nil {
-			logger.Error("failed to parse manifest", "tool", name, "manifest_index", i, "error", err)
-			return nil, catalogInstallResult{}, fmt.Errorf("parse manifest %d: %w", i, err)
-		}
+			// Parse YAML to unstructured
+			obj := &unstructured.Unstructured{}
+			if err := yaml.Unmarshal(manifest, &obj.Object); err != nil {
+				logger.Error("failed to parse manifest", "tool", name, "manifest_index", i, "error", err)
+				return nil, catalogInstallResult{}, fmt.Errorf("parse manifest %d: %w", i, err)
+			}
 
-		// Get GVK for processing
-		gvk := obj.GroupVersionKind()
+			// Get GVK for processing
+			gvk := obj.GroupVersionKind()
 
-		// Convert v1alpha1 to v1beta1 if needed (catalog uses v1alpha1, clusters use v1beta1)
-		if obj.GetAPIVersion() == "k0rdent.mirantis.com/v1alpha1" {
-			obj.SetAPIVersion("k0rdent.mirantis.com/v1beta1")
-			// Update gvk after version change
-			gvk = obj.GroupVersionKind()
-			logger.Debug("converted API version", "tool", name, "from", "v1alpha1", "to", "v1beta1")
-		}
+			// Convert v1alpha1 to v1beta1 if needed (catalog uses v1alpha1, clusters use v1beta1)
+			if obj.GetAPIVersion() == "k0rdent.mirantis.com/v1alpha1" {
+				obj.SetAPIVersion("k0rdent.mirantis.com/v1beta1")
+				// Update gvk after version change
+				gvk = obj.GroupVersionKind()
+				logger.Debug("converted API version", "tool", name, "from", "v1alpha1", "to", "v1beta1")
+			}
 
 			// Set namespace to target namespace for ServiceTemplates and HelmRepositories
 			if gvk.Kind == "ServiceTemplate" || gvk.Kind == "HelmRepository" {
@@ -187,12 +187,12 @@ func (t *catalogInstallTool) install(ctx context.Context, req *mcp.CallToolReque
 				logger.Debug("setting namespace", "tool", name, "kind", gvk.Kind, "namespace", targetNS)
 			}
 
-		// Determine GVR from GVK
-		gvr := schema.GroupVersionResource{
-			Group:    gvk.Group,
-			Version:  gvk.Version,
-			Resource: pluralize(gvk.Kind),
-		}
+			// Determine GVR from GVK
+			gvr := schema.GroupVersionResource{
+				Group:    gvk.Group,
+				Version:  gvk.Version,
+				Resource: pluralize(gvk.Kind),
+			}
 
 			logger.Debug("applying resource",
 				"tool", name,

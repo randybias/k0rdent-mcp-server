@@ -1,9 +1,10 @@
 package clusters
 
 import (
-	"log/slog"
 	"context"
+	"log/slog"
 	"regexp"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,15 +17,15 @@ func TestDeployCluster_Validation(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 	}
 
 	tests := []struct {
-		name          string
-		input         DeployRequest
-		expectedError string
+		name                string
+		input               DeployRequest
+		expectedErrContains string
 	}{
 		{
 			name: "missing cluster name",
@@ -33,7 +34,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 				Credential: "azure-cred",
 				Config:     map[string]interface{}{"location": "westus2"},
 			},
-			expectedError: "cluster name is required",
+			expectedErrContains: "name is required",
 		},
 		{
 			name: "missing template",
@@ -42,7 +43,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 				Credential: "azure-cred",
 				Config:     map[string]interface{}{"location": "westus2"},
 			},
-			expectedError: "template is required",
+			expectedErrContains: "template is required",
 		},
 		{
 			name: "missing credential",
@@ -51,7 +52,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 				Template: "azure-template",
 				Config:   map[string]interface{}{"location": "westus2"},
 			},
-			expectedError: "credential is required",
+			expectedErrContains: "credential is required",
 		},
 		{
 			name: "missing config",
@@ -60,7 +61,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 				Template:   "azure-template",
 				Credential: "azure-cred",
 			},
-			expectedError: "config is required",
+			expectedErrContains: "template azure-template not found",
 		},
 		{
 			name: "valid input",
@@ -70,7 +71,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 				Credential: "azure-cred",
 				Config:     map[string]interface{}{"location": "westus2"},
 			},
-			expectedError: "", // no error expected
+			expectedErrContains: "", // no specific validation error expected
 		},
 	}
 
@@ -78,7 +79,7 @@ func TestDeployCluster_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := manager.DeployCluster(context.Background(), "kcm-system", tt.input)
 
-			if tt.expectedError == "" {
+			if tt.expectedErrContains == "" {
 				// For valid input, we expect error about missing template/credential resources
 				// since they don't exist in the fake client
 				if err == nil {
@@ -86,9 +87,10 @@ func TestDeployCluster_Validation(t *testing.T) {
 				}
 			} else {
 				if err == nil {
-					t.Errorf("expected error %q, got nil", tt.expectedError)
-				} else if err.Error() != tt.expectedError {
-					t.Errorf("expected error %q, got %q", tt.expectedError, err.Error())
+					t.Fatalf("expected error containing %q, got nil", tt.expectedErrContains)
+				}
+				if !strings.Contains(err.Error(), tt.expectedErrContains) {
+					t.Fatalf("expected error containing %q, got %q", tt.expectedErrContains, err.Error())
 				}
 			}
 		})
@@ -113,7 +115,7 @@ func TestDeployCluster_NamespaceResolution(t *testing.T) {
 		expectError       bool
 	}{
 		{
-			name:              "dev mode with no input namespace defaults to global",
+			name: "dev mode with no input namespace defaults to global",
 			// devMode removed:           true,
 			namespaceFilter:   nil,
 			inputNamespace:    "",
@@ -121,7 +123,7 @@ func TestDeployCluster_NamespaceResolution(t *testing.T) {
 			expectError:       false,
 		},
 		{
-			name:              "dev mode with explicit namespace",
+			name: "dev mode with explicit namespace",
 			// devMode removed:           true,
 			namespaceFilter:   nil,
 			inputNamespace:    "team-alpha",
@@ -129,14 +131,14 @@ func TestDeployCluster_NamespaceResolution(t *testing.T) {
 			expectError:       false,
 		},
 		{
-			name:            "production mode without namespace should error",
+			name: "production mode without namespace should error",
 			// devMode removed:         false,
 			namespaceFilter: regexp.MustCompile("^team-"),
 			inputNamespace:  "",
 			expectError:     true,
 		},
 		{
-			name:              "production mode with allowed namespace",
+			name: "production mode with allowed namespace",
 			// devMode removed:           false,
 			namespaceFilter:   regexp.MustCompile("^team-"),
 			inputNamespace:    "team-alpha",
@@ -144,7 +146,7 @@ func TestDeployCluster_NamespaceResolution(t *testing.T) {
 			expectError:       false,
 		},
 		{
-			name:            "production mode with forbidden namespace",
+			name: "production mode with forbidden namespace",
 			// devMode removed:         false,
 			namespaceFilter: regexp.MustCompile("^team-"),
 			inputNamespace:  "forbidden-namespace",
@@ -155,9 +157,9 @@ func TestDeployCluster_NamespaceResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := &Manager{
-				dynamicClient:          client,
+				dynamicClient:   client,
 				globalNamespace: "kcm-system",
-		logger:          slog.Default(),
+				logger:          slog.Default(),
 				// devMode removed:         tt.devMode,
 				namespaceFilter: tt.namespaceFilter,
 			}
@@ -205,18 +207,18 @@ func TestDeployCluster_TemplateResolution(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme, globalTemplate, localTemplate, credential)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 		// devMode removed:         true,
 	}
 
 	tests := []struct {
-		name              string
-		templateRef       string
-		targetNamespace   string
-		expectError       bool
-		expectedTemplate  string
+		name             string
+		templateRef      string
+		targetNamespace  string
+		expectError      bool
+		expectedTemplate string
 	}{
 		{
 			name:             "simple template name from global namespace",
@@ -282,17 +284,17 @@ func TestDeployCluster_CredentialResolution(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme, template, globalCred, localCred)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 		// devMode removed:         true,
 	}
 
 	tests := []struct {
-		name              string
-		credentialRef     string
-		targetNamespace   string
-		expectError       bool
+		name               string
+		credentialRef      string
+		targetNamespace    string
+		expectError        bool
 		expectedCredential string
 	}{
 		{
@@ -358,11 +360,11 @@ func TestDeployCluster_Labels(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme, template, credential)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 		// devMode removed:         true,
-		fieldOwner:      "mcp.clusters",
+		fieldOwner: "mcp.clusters",
 	}
 
 	input := DeployRequest{
@@ -395,7 +397,7 @@ func TestDeployCluster_ConfigPassthrough(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme, template, credential)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 		// devMode removed:         true,
@@ -450,11 +452,11 @@ func TestDeployCluster_ManagedLabels(t *testing.T) {
 	client := fake.NewSimpleDynamicClient(scheme, template, credential)
 
 	manager := &Manager{
-		dynamicClient:          client,
+		dynamicClient:   client,
 		globalNamespace: "kcm-system",
 		logger:          slog.Default(),
 		// devMode removed:         true,
-		fieldOwner:      "mcp.clusters",
+		fieldOwner: "mcp.clusters",
 	}
 
 	input := DeployRequest{

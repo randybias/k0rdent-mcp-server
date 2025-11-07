@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseEventsURI(t *testing.T) {
-	ns, err := parseEventsURI("k0://events/team-alpha")
+	ns, err := parseEventsURI("k0rdent://events/team-alpha")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/dynamic/fake"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
-	k0runtime "github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
+	mcpRuntime "github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
 // Test data constants
@@ -85,7 +85,7 @@ func TestCatalogList_Success(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{}
+	session := &mcpRuntime.Session{}
 	tool := &catalogListTool{
 		session: session,
 		manager: manager,
@@ -122,7 +122,7 @@ func TestCatalogList_WithAppFilter(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{}
+	session := &mcpRuntime.Session{}
 	tool := &catalogListTool{
 		session: session,
 		manager: manager,
@@ -147,7 +147,7 @@ func TestCatalogList_WithRefresh(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{}
+	session := &mcpRuntime.Session{}
 	tool := &catalogListTool{
 		session: session,
 		manager: manager,
@@ -197,8 +197,8 @@ func TestCatalogInstall_MissingApp(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile(".*"),
@@ -230,8 +230,8 @@ func TestCatalogInstall_MissingVersion(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile(".*"),
@@ -263,8 +263,8 @@ func TestCatalogInstall_NamespaceFilterBlocked(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile("^allowed-"), // only allow namespaces starting with "allowed-"
@@ -314,8 +314,8 @@ func TestCatalogInstall_ClusterScoped(t *testing.T) {
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile("^catalog-"), // filter should not affect cluster-scoped resources
@@ -350,8 +350,8 @@ func TestCatalogInstall_InvalidYAML(t *testing.T) {
 
 // TestCatalogInstall_MissingRequiredFields tests validation of required inputs
 func TestCatalogInstall_MissingRequiredFields(t *testing.T) {
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 	}
@@ -426,7 +426,7 @@ func TestCatalogList_ManagerError(t *testing.T) {
 		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 
-	session := &k0runtime.Session{}
+	session := &mcpRuntime.Session{}
 	tool := &catalogListTool{
 		session: session,
 		manager: manager,
@@ -504,8 +504,8 @@ func TestCatalogDelete_MissingApp(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile(".*"),
@@ -537,8 +537,8 @@ func TestCatalogDelete_MissingVersion(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile(".*"),
@@ -570,8 +570,8 @@ func TestCatalogDelete_NamespaceFilterBlocked(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile("^allowed-"), // only allow namespaces starting with "allowed-"
@@ -609,8 +609,8 @@ func TestCatalogDelete_NamespaceFilterAllowed(t *testing.T) {
 
 // TestCatalogDelete_MissingRequiredFields tests validation of required inputs
 func TestCatalogDelete_MissingRequiredFields(t *testing.T) {
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 	}
@@ -676,8 +676,8 @@ func TestCatalogDelete_DefaultNamespace(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: nil, // DEV_ALLOW_ANY mode
@@ -711,8 +711,8 @@ func TestCatalogDelete_OIDCRequiredMode(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile("^user-"), // OIDC_REQUIRED mode with restricted filter
@@ -754,8 +754,8 @@ func TestCatalogDelete_BothNamespaceAndAllNamespaces(t *testing.T) {
 	ts, manager := createTestCatalogManager(t)
 	defer ts.Close()
 
-	session := &k0runtime.Session{
-		Clients: k0runtime.Clients{
+	session := &mcpRuntime.Session{
+		Clients: mcpRuntime.Clients{
 			Dynamic: fake.NewSimpleDynamicClient(runtime.NewScheme()),
 		},
 		NamespaceFilter: regexp.MustCompile(".*"),

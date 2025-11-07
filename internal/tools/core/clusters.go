@@ -35,7 +35,7 @@ type clustersListTemplatesTool struct {
 }
 
 type clustersListTemplatesInput struct {
-	Scope     string `json:"scope"`              // "global", "local", or "all"
+	Scope     string `json:"scope"`               // "global", "local", or "all"
 	Namespace string `json:"namespace,omitempty"` // Optional namespace filter
 }
 
@@ -48,16 +48,16 @@ type clustersDeployTool struct {
 }
 
 type clustersDeployInput struct {
-	Name              string            `json:"name"`
-	Template          string            `json:"template"`
-	Credential        string            `json:"credential"`
-	Namespace         string            `json:"namespace,omitempty"`
-	Labels            map[string]string `json:"labels,omitempty"`
-	Config            map[string]any    `json:"config"`
-	Wait              bool              `json:"wait,omitempty"`              // Wait for cluster to be ready before returning
-	PollInterval      string            `json:"pollInterval,omitempty"`      // How often to check status (e.g. "30s"), default "30s"
-	ProvisionTimeout  string            `json:"provisionTimeout,omitempty"`  // Max time to wait for provisioning (e.g. "30m"), default "30m"
-	StallThreshold    string            `json:"stallThreshold,omitempty"`    // Warn if no progress for this duration (e.g. "10m"), default "10m"
+	Name             string            `json:"name"`
+	Template         string            `json:"template"`
+	Credential       string            `json:"credential"`
+	Namespace        string            `json:"namespace,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Config           map[string]any    `json:"config"`
+	Wait             bool              `json:"wait,omitempty"`             // Wait for cluster to be ready before returning
+	PollInterval     string            `json:"pollInterval,omitempty"`     // How often to check status (e.g. "30s"), default "30s"
+	ProvisionTimeout string            `json:"provisionTimeout,omitempty"` // Max time to wait for provisioning (e.g. "30m"), default "30m"
+	StallThreshold   string            `json:"stallThreshold,omitempty"`   // Warn if no progress for this duration (e.g. "10m"), default "10m"
 }
 
 type clustersDeployResult clusters.DeployResult
@@ -67,11 +67,11 @@ type clustersDeleteTool struct {
 }
 
 type clustersDeleteInput struct {
-	Name             string `json:"name"`
-	Namespace        string `json:"namespace,omitempty"`
-	Wait             bool   `json:"wait,omitempty"`             // Wait for deletion to complete (default: false)
-	PollInterval     string `json:"pollInterval,omitempty"`     // e.g. "60s", default "60s"
-	DeletionTimeout  string `json:"deletionTimeout,omitempty"`  // e.g. "20m", default "20m"
+	Name            string `json:"name"`
+	Namespace       string `json:"namespace,omitempty"`
+	Wait            bool   `json:"wait,omitempty"`            // Wait for deletion to complete (default: false)
+	PollInterval    string `json:"pollInterval,omitempty"`    // e.g. "60s", default "60s"
+	DeletionTimeout string `json:"deletionTimeout,omitempty"` // e.g. "20m", default "20m"
 }
 
 type clustersDeleteResult clusters.DeleteResult
@@ -89,38 +89,38 @@ type clustersListResult struct {
 }
 
 func registerClusters(server *mcp.Server, session *runtime.Session) error {
-	// Register k0.providers.listCredentials
+	// Register k0rdent.providers.listCredentials
 	listCredsTool := &clustersListCredentialsTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.providers.listCredentials",
+		Name:        "k0rdent.providers.listCredentials",
 		Description: "List available provider Credentials for cluster provisioning. Returns credentials from kcm-system (global) plus namespaces allowed by the current session. Credentials are tied to infrastructure providers (Azure, AWS, GCP, vSphere, etc.).",
 	}, listCredsTool.list)
 
-	// Register k0.clusterTemplates.list
+	// Register k0rdent.clusterTemplates.list
 	listTemplsTool := &clustersListTemplatesTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.clusterTemplates.list",
+		Name:        "k0rdent.clusterTemplates.list",
 		Description: "List available ClusterTemplates. Differentiates global (kcm-system) vs local templates, enforcing namespace filters. Input scope: 'global', 'local', or 'all'.",
 	}, listTemplsTool.list)
 
-	// Register k0.clusters.list
+	// Register k0rdent.clusters.list
 	listClustersTool := &clustersListTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.clusters.list",
+		Name:        "k0rdent.clusters.list",
 		Description: "List all ClusterDeployments. Returns clusters from allowed namespaces with optional filtering by namespace.",
 	}, listClustersTool.list)
 
-	// Register k0.cluster.deploy
+	// Register k0rdent.cluster.deploy
 	deployTool := &clustersDeployTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.cluster.deploy",
+		Name:        "k0rdent.cluster.deploy",
 		Description: "Deploy a new ClusterDeployment using specified template and credential. In DEV_ALLOW_ANY mode, defaults to kcm-system namespace. In OIDC_REQUIRED mode, requires explicit namespace.",
 	}, deployTool.deploy)
 
-	// Register k0.cluster.delete
+	// Register k0rdent.cluster.delete
 	deleteTool := &clustersDeleteTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.cluster.delete",
+		Name:        "k0rdent.cluster.delete",
 		Description: "Delete a ClusterDeployment. Uses foreground propagation to ensure proper finalizer execution and resource cleanup. By default (wait=false), returns immediately after initiating deletion. Set wait=true to poll until deletion completes. Idempotent (returns success if already deleted).",
 	}, deleteTool.delete)
 

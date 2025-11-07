@@ -53,7 +53,7 @@ For AWS deployments:
 
 ## Available Tools
 
-### k0.clusters.listCredentials
+### k0rdent.clusters.listCredentials
 
 Lists accessible `Credential` resources for cluster provisioning.
 
@@ -101,7 +101,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listCredentials",
+    "name": "k0rdent.clusters.listCredentials",
     "arguments": {}
   }
 }
@@ -115,7 +115,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listCredentials",
+    "name": "k0rdent.clusters.listCredentials",
     "arguments": {
       "namespace": "team-a"
     }
@@ -131,7 +131,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listCredentials",
+    "name": "k0rdent.clusters.listCredentials",
     "arguments": {
       "scope": "global"
     }
@@ -145,7 +145,7 @@ The `ready` field is derived from the credential's `status.conditions`:
 - `true` - Credential has been validated and is ready for use
 - `false` - Credential validation pending or failed
 
-### k0.clusters.listTemplates
+### k0rdent.clusters.listTemplates
 
 Lists available `ClusterTemplate` resources for cluster provisioning.
 
@@ -196,7 +196,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listTemplates",
+    "name": "k0rdent.clusters.listTemplates",
     "arguments": {}
   }
 }
@@ -210,7 +210,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listTemplates",
+    "name": "k0rdent.clusters.listTemplates",
     "arguments": {
       "scope": "global"
     }
@@ -226,7 +226,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listTemplates",
+    "name": "k0rdent.clusters.listTemplates",
     "arguments": {
       "scope": "local",
       "namespace": "team-a"
@@ -241,7 +241,7 @@ Templates include a `configSchema` outline derived from the template's `spec.sch
 - `required` - List of required fields
 - `properties` - Top-level configuration fields with types
 
-### k0.clusters.deploy
+### k0rdent.clusters.deploy
 
 Creates or updates a `ClusterDeployment` resource to provision a child cluster.
 
@@ -286,7 +286,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.deploy",
+    "name": "k0rdent.clusters.deploy",
     "arguments": {
       "name": "my-azure-cluster",
       "template": "azure-standalone-cp-1-0-15",
@@ -326,7 +326,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 8,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.deploy",
+    "name": "k0rdent.clusters.deploy",
     "arguments": {
       "name": "my-aws-cluster",
       "template": "aws-standalone-cp-0-0-3",
@@ -363,7 +363,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 9,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.deploy",
+    "name": "k0rdent.clusters.deploy",
     "arguments": {
       "name": "team-cluster",
       "template": "team-a/custom-template",
@@ -387,7 +387,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
 - **Validation**: Verifies template and credential exist before applying
 - **Config Flexibility**: Accepts any valid config structure for the template
 
-### k0.clusters.delete
+### k0rdent.clusters.delete
 
 Deletes a `ClusterDeployment` resource to deprovision a child cluster.
 
@@ -427,7 +427,7 @@ Uses the same rules as `deploy`:
   "id": 10,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.delete",
+    "name": "k0rdent.clusters.delete",
     "arguments": {
       "name": "my-test-cluster"
     }
@@ -443,7 +443,7 @@ Uses the same rules as `deploy`:
   "id": 11,
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.delete",
+    "name": "k0rdent.clusters.delete",
     "arguments": {
       "name": "team-cluster",
       "namespace": "team-a"
@@ -557,7 +557,7 @@ Approximate hourly costs for baseline configuration (westus2):
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listCredentials",
+    "name": "k0rdent.clusters.listCredentials",
     "arguments": {}
   }
 }
@@ -569,7 +569,7 @@ Approximate hourly costs for baseline configuration (westus2):
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.listTemplates",
+    "name": "k0rdent.clusters.listTemplates",
     "arguments": {
       "scope": "global"
     }
@@ -583,7 +583,7 @@ Approximate hourly costs for baseline configuration (westus2):
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.deploy",
+    "name": "k0rdent.clusters.deploy",
     "arguments": {
       "name": "production-cluster-01",
       "template": "azure-standalone-cp-1-0-15",
@@ -623,7 +623,7 @@ Use existing k0rdent tools to monitor progress:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.k0rdent.clusterDeployments.list",
+    "name": "k0rdent.k0rdent.clusterDeployments.list",
     "arguments": {}
   }
 }
@@ -640,7 +640,7 @@ Check the `status` field for:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.clusters.delete",
+    "name": "k0rdent.clusters.delete",
     "arguments": {
       "name": "production-cluster-01"
     }
@@ -654,7 +654,7 @@ Check the `status` field for:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0.k0rdent.clusterDeployments.list",
+    "name": "k0rdent.k0rdent.clusterDeployments.list",
     "arguments": {}
   }
 }
@@ -677,7 +677,7 @@ The cluster should no longer appear in the list.
 }
 ```
 
-**Resolution**: Use `k0.clusters.listCredentials` to see available credentials.
+**Resolution**: Use `k0rdent.clusters.listCredentials` to see available credentials.
 
 **Missing Template**
 
@@ -690,7 +690,7 @@ The cluster should no longer appear in the list.
 }
 ```
 
-**Resolution**: Use `k0.clusters.listTemplates` to see available templates.
+**Resolution**: Use `k0rdent.clusters.listTemplates` to see available templates.
 
 **Namespace Forbidden**
 

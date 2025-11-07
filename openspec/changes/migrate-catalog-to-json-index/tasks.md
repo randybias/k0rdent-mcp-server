@@ -32,11 +32,11 @@
 - [x] 5.1 Add `catalogDeleteServiceTemplateTool` struct to `internal/tools/core/catalog.go`
 - [x] 5.2 Add `catalogDeleteInput` and `catalogDeleteResult` types
 - [x] 5.3 Implement `delete()` method with namespace resolution (reuse install logic)
-- [x] 5.4 Register `k0.catalog.delete_servicetemplate` tool in `registerCatalog()`
+- [x] 5.4 Register `k0rdent.catalog.delete_servicetemplate` tool in `registerCatalog()`
 - [x] 5.5 Add unit tests for delete with namespace filtering
 
 ## 6. Rename Install Tool
-- [x] 6.1 Rename `k0.catalog.install` to `k0.catalog.install_servicetemplate`
+- [x] 6.1 Rename `k0rdent.catalog.install` to `k0rdent.catalog.install_servicetemplate`
 - [x] 6.2 Update tool registration in `registerCatalog()`
 - [x] 6.3 Update all references in tests
 - [x] 6.4 Update documentation with new tool name
@@ -50,8 +50,8 @@
 
 ## 8. Documentation Updates
 - [x] 8.1 Update `docs/catalog.md` with new architecture (JSON index instead of tarball)
-- [x] 8.2 Document `k0.catalog.delete_servicetemplate` tool with examples
-- [x] 8.3 Document `k0.catalog.install_servicetemplate` (renamed tool)
+- [x] 8.2 Document `k0rdent.catalog.delete_servicetemplate` tool with examples
+- [x] 8.3 Document `k0rdent.catalog.install_servicetemplate` (renamed tool)
 - [x] 8.4 Update configuration section (new default URL, keep SQLite references)
 - [x] 8.5 Update troubleshooting section (GitHub raw URL issues, JSON parsing errors)
 - [x] 8.6 Update performance metrics (faster download, no extraction)

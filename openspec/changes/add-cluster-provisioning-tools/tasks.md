@@ -12,7 +12,7 @@
 - [x] 2.3 Add metrics counters/histograms for cluster tool operations.
 
 ## 3. MCP tools
-- [x] 3.1 Register `k0.clusters.listCredentials`, `k0.clusters.listTemplates`, `k0.clusters.deploy`, and `k0.clusters.delete` in core tool registration.
+- [x] 3.1 Register `k0rdent.clusters.listCredentials`, `k0rdent.clusters.listTemplates`, `k0rdent.clusters.deploy`, and `k0rdent.clusters.delete` in core tool registration.
 - [x] 3.2 Implement tool handlers with input validation, error mapping, and structured logging.
 - [x] 3.3 Ensure handlers enforce namespace filters and dev-mode namespace defaults.
 - [x] 3.4 Add metrics tracking for all cluster operations (list, deploy, delete).

@@ -24,8 +24,8 @@ Replace the tarball-based catalog system with a JSON index-based approach:
 3. **Use JSON timestamp** (`metadata.generated`) for cache invalidation instead of SHA256
 4. **Keep SQLite database** for persistent cache and future extensibility
 5. **Fetch manifests on-demand** from GitHub raw URLs when installing
-6. **Add delete tool** (`k0.catalog.delete_servicetemplate`) for removing ServiceTemplates from namespaces
-7. **Rename install tool** to `k0.catalog.install_servicetemplate` for clarity
+6. **Add delete tool** (`k0rdent.catalog.delete_servicetemplate`) for removing ServiceTemplates from namespaces
+7. **Rename install tool** to `k0rdent.catalog.install_servicetemplate` for clarity
 
 ## Benefits
 
@@ -47,8 +47,8 @@ Replace the tarball-based catalog system with a JSON index-based approach:
 - Use JSON `metadata.generated` timestamp for cache invalidation
 - Keep SQLite database, simplify schema if beneficial
 - Fetch manifests from GitHub raw URLs on install
-- Rename `k0.catalog.install` to `k0.catalog.install_servicetemplate`
-- Add `k0.catalog.delete_servicetemplate` tool for removing ServiceTemplates
+- Rename `k0rdent.catalog.install` to `k0rdent.catalog.install_servicetemplate`
+- Add `k0rdent.catalog.delete_servicetemplate` tool for removing ServiceTemplates
 - Update all unit tests with JSON fixtures
 - Update integration tests to use JSON index
 - Update documentation
@@ -63,9 +63,9 @@ Replace the tarball-based catalog system with a JSON index-based approach:
 ## Migration Path
 
 The change is mostly internal with one breaking change for tool naming:
-- `k0.catalog.list` - Same parameters and response format (no change)
-- `k0.catalog.install` → `k0.catalog.install_servicetemplate` - Renamed for clarity, same parameters and response format
-- `k0.catalog.delete_servicetemplate` - New tool with similar parameter pattern to install
+- `k0rdent.catalog.list` - Same parameters and response format (no change)
+- `k0rdent.catalog.install` → `k0rdent.catalog.install_servicetemplate` - Renamed for clarity, same parameters and response format
+- `k0rdent.catalog.delete_servicetemplate` - New tool with similar parameter pattern to install
 
 ## Risks
 
@@ -78,7 +78,7 @@ The change is mostly internal with one breaking change for tool naming:
 3. **Cache invalidation**: Need to detect when JSON index changes
    - *Mitigation*: Use `metadata.generated` timestamp field from JSON index to track updates
 
-4. **Breaking change**: Tool rename from `k0.catalog.install` to `k0.catalog.install_servicetemplate`
+4. **Breaking change**: Tool rename from `k0rdent.catalog.install` to `k0rdent.catalog.install_servicetemplate`
    - *Mitigation*: Document in release notes, consider deprecation period if needed
 
 ## Success Criteria

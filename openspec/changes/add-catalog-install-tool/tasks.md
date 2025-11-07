@@ -10,7 +10,7 @@
 - [x] 2.2 Add configuration knobs (`CATALOG_ARCHIVE_URL`, `CATALOG_CACHE_DIR`, download timeout) with sane defaults and logging.
 
 ## 3. MCP tools
-- [x] 3.1 Register `k0.catalog.list` and `k0.catalog.install` in the core tool registry.
+- [x] 3.1 Register `k0rdent.catalog.list` and `k0rdent.catalog.install` in the core tool registry.
 - [x] 3.2 Implement `list` handler to return catalog metadata (with optional slug filter) using cached index and namespace filter awareness.
 - [x] 3.3 Implement `install` handler that loads the requested manifest bundle, applies the helper `HelmRepository` (if required), and applies the ServiceTemplate via server-side apply.
 - [x] 3.4 Emit structured logs/metrics for list/install success and failure.

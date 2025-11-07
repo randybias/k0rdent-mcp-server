@@ -6,7 +6,7 @@
 - Automating credential/template discovery and cluster deployment through MCP keeps workflows inside Claude Code, reduces copy/paste errors, and honours namespace segregation (global resources in `kcm-system`, tenant-specific resources elsewhere).
 
 ## What Changes
-- Introduce MCP tools under `k0.clusters.*` for:
+- Introduce MCP tools under `k0rdent.clusters.*` for:
   - Listing accessible `Credential` CRs (global in `kcm-system` plus namespaces allowed by the current session/namespace filter).
   - Listing available `ClusterTemplate` CRs split into global (`kcm-system`) and local (namespaces allowed for the caller).
   - Deploying a new `ClusterDeployment` tied to a chosen credential/template, with support for passing configuration from the user guide (name, labels, config block).
@@ -35,10 +35,10 @@
 
 ## Acceptance
 - `openspec validate add-cluster-provisioning-tools --strict` passes.
-- `k0.clusters.listCredentials()` returns credentials from `kcm-system` plus caller-authorised namespaces, including provider labels and readiness indicators.
-- `k0.clusters.listTemplates(scope)` differentiates global vs local `ClusterTemplate` resources, enforcing namespace filters.
-- `k0.clusters.deploy()` creates or updates a `ClusterDeployment` using supplied name/template/credential/config; Dev mode defaults to namespace `kcm-system`, production mode requires a namespace allowed by the filter.
-- `k0.clusters.delete()` removes a `ClusterDeployment` with proper finalizer handling and returns deletion status.
+- `k0rdent.clusters.listCredentials()` returns credentials from `kcm-system` plus caller-authorised namespaces, including provider labels and readiness indicators.
+- `k0rdent.clusters.listTemplates(scope)` differentiates global vs local `ClusterTemplate` resources, enforcing namespace filters.
+- `k0rdent.clusters.deploy()` creates or updates a `ClusterDeployment` using supplied name/template/credential/config; Dev mode defaults to namespace `kcm-system`, production mode requires a namespace allowed by the filter.
+- `k0rdent.clusters.delete()` removes a `ClusterDeployment` with proper finalizer handling and returns deletion status.
 - Tool responses include enough metadata to align with the documented cluster creation workflow (template description, required parameters, credential summary).
 - Unit tests cover happy path, forbidden namespace, missing credential/template, and server-side apply conflicts.
 - Live integration tests deploy and delete a test cluster using Azure credentials (`azure-cluster-credential`) and template (`azure-standalone-cp-1-0-15`), verifying the full lifecycle.

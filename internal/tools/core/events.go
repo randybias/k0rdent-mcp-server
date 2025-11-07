@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	eventsURITemplate = "k0://events/{namespace}"
-	eventsScheme      = "k0"
+	eventsURITemplate = "k0rdent://events/{namespace}"
+	eventsScheme      = "k0rdent"
 	eventsHost        = "events"
 	eventsMIMEType    = "application/json"
 )
@@ -69,7 +69,7 @@ func (m *EventManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 	}
 
 	ctx = logging.WithNamespace(ctx, namespace)
-	ctx, logger := toolContext(ctx, m.session, "k0.events.subscribe", "tool.events")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.events.subscribe", "tool.events")
 	logger = logger.With("namespace", namespace)
 	logger.Info("subscribing to namespace events")
 
@@ -124,7 +124,7 @@ func (m *EventManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	}
 
 	ctx = logging.WithNamespace(ctx, namespace)
-	ctx, logger := toolContext(ctx, m.session, "k0.events.unsubscribe", "tool.events")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.events.unsubscribe", "tool.events")
 	logger = logger.With("namespace", namespace)
 	logger.Info("unsubscribing from namespace events")
 
@@ -238,12 +238,11 @@ func registerEvents(server *mcp.Server, session *runtime.Session, manager *Event
 
 	tool := &eventsTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.events.list",
+		Name:        "k0rdent.events.list",
 		Description: "List Kubernetes events for a namespace",
 	}, tool.list)
-
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		Name:        "k0.events",
+		Name:        "k0rdent.events",
 		Title:       "Kubernetes namespace events",
 		Description: "Streaming events scoped to a Kubernetes namespace",
 		URITemplate: eventsURITemplate,

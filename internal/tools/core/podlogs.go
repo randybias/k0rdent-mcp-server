@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	podLogsScheme      = "k0"
+	podLogsScheme      = "k0rdent"
 	podLogsHost        = "podlogs"
-	podLogsURITemplate = "k0://podlogs/{namespace}/{pod}/{container}"
+	podLogsURITemplate = "k0rdent://podlogs/{namespace}/{pod}/{container}"
 	podLogsMIMEType    = "text/plain"
 )
 
@@ -76,8 +76,8 @@ func (m *PodLogManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest
 		return err
 	}
 	ctx = logging.WithNamespace(ctx, key.Namespace)
-	ctx, logger := toolContext(ctx, m.session, "k0.podLogs.follow", "tool.podlogs")
-	logger = logger.With("tool", "k0.podLogs.follow", "pod", key.Pod, "container", key.Container, "uri", uri)
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.podLogs.follow", "tool.podlogs")
+	logger = logger.With("tool", "k0rdent.podLogs.follow", "pod", key.Pod, "container", key.Container, "uri", uri)
 	logger.Info("subscribing to pod log stream")
 	_, err = m.ensureStream(uri, key)
 	if err != nil {
@@ -99,8 +99,8 @@ func (m *PodLogManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeReq
 	}
 
 	ctx = logging.WithNamespace(ctx, key.Namespace)
-	ctx, logger := toolContext(ctx, m.session, "k0.podLogs.unfollow", "tool.podlogs")
-	logger = logger.With("tool", "k0.podLogs.unfollow", "pod", key.Pod, "container", key.Container, "uri", uri)
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.podLogs.unfollow", "tool.podlogs")
+	logger = logger.With("tool", "k0rdent.podLogs.unfollow", "pod", key.Pod, "container", key.Container, "uri", uri)
 	logger.Info("unsubscribing from pod log stream")
 
 	m.mu.Lock()
@@ -126,7 +126,7 @@ func (m *PodLogManager) EnsureStream(key podLogKey) (string, error) {
 	if m != nil && m.session != nil && m.session.Logger != nil {
 		logger = logging.WithComponent(m.session.Logger, "tool.podlogs")
 		logger = logger.With(
-			"tool", "k0.podLogs.follow",
+			"tool", "k0rdent.podLogs.follow",
 			"namespace", key.Namespace,
 			"pod", key.Pod,
 			"container", key.Container,
@@ -263,12 +263,12 @@ func registerPodLogs(server *mcp.Server, session *runtime.Session, manager *PodL
 
 	tool := &podLogsTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.podLogs.get",
+		Name:        "k0rdent.podLogs.get",
 		Description: "Get Kubernetes pod logs",
 	}, tool.get)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		Name:        "k0.podLogs",
+		Name:        "k0rdent.podLogs",
 		Title:       "Kubernetes pod logs",
 		Description: "Streaming pod logs for troubleshooting",
 		URITemplate: podLogsURITemplate,

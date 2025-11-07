@@ -10,29 +10,29 @@
 - A namespace allowlist filter MAY be configured via `K0RDENT_NAMESPACE_FILTER`.
 
 ### Core Tools
-- `k0.namespaces.list()` — returns namespaces (name, labels, status).
-- `k0.events.list(ns, sinceSeconds?, limit?, types?, forKind?, forName?)`
+- `k0rdent.namespaces.list()` — returns namespaces (name, labels, status).
+- `k0rdent.events.list(ns, sinceSeconds?, limit?, types?, forKind?, forName?)`
   - MUST read Events from **`events.k8s.io/v1`** if available; MUST fall back to core `v1` Events.
   - MUST support **field selectors** for involved/regarding object (kind & name).
-- `k0.podLogs.get(ns, pod, container?, tailLines?, sinceSeconds?, previous?, follow?)`
+- `k0rdent.podLogs.get(ns, pod, container?, tailLines?, sinceSeconds?, previous?, follow?)`
   - MUST stream when `follow=true`; MUST require `container` when multiple containers are present.
 
 ### k0rdent Tools
-- `k0.k0rdent.serviceTemplates.list()`
-- `k0.k0rdent.clusterDeployments.list(selector?)`
-- `k0.k0rdent.multiClusterServices.list(selector?)`
+- `k0rdent.k0rdent.serviceTemplates.list()`
+- `k0rdent.k0rdent.clusterDeployments.list(selector?)`
+- `k0rdent.k0rdent.multiClusterServices.list(selector?)`
 
 ### Graph
-- `k0.graph.snapshot(ns?, kinds?)` — returns `{ nodes, edges }` where edges derive from:
+- `k0rdent.graph.snapshot(ns?, kinds?)` — returns `{ nodes, edges }` where edges derive from:
   - K8s ownerReferences and label selectors (Service→Pod, HPA→scale target, etc.)
   - k0rdent CRD refs (e.g., ClusterDeployment.spec.serviceSpec.services[].template, MultiClusterService selectors/precedence)
-- `sub.k0.graph(ns?, kinds?)` — emits `add|update|delete` deltas with affected nodes/edges.
+- `sub.k0rdent.graph(ns?, kinds?)` — emits `add|update|delete` deltas with affected nodes/edges.
 
 ### Events Subscription
-- `sub.k0.events(ns)` — pushes new/updated/deleted Events scoped to the namespace.
+- `sub.k0rdent.events(ns)` — pushes new/updated/deleted Events scoped to the namespace.
 
 ### Pod Logs Subscription
-- `sub.k0.podLogs(ns, pod, container?)` — streams logs as text frames.
+- `sub.k0rdent.podLogs(ns, pod, container?)` — streams logs as text frames.
 
 ### Health & Build
 - `/healthz` SHALL be provided for liveness/readiness.

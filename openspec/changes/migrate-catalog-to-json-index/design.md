@@ -164,12 +164,12 @@ https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-u
 ### 7. Tools (internal/tools/core/catalog.go)
 
 **Add:**
-- `k0.catalog.delete_servicetemplate` tool handler
+- `k0rdent.catalog.delete_servicetemplate` tool handler
 - `catalogDeleteInput` type
 - `catalogDeleteResult` type
 
 **Rename:**
-- `k0.catalog.install` → `k0.catalog.install_servicetemplate`
+- `k0rdent.catalog.install` → `k0rdent.catalog.install_servicetemplate`
 
 **Modify:**
 - Update `GetManifests` to fetch from GitHub raw URLs instead of disk
@@ -190,7 +190,7 @@ https://raw.githubusercontent.com/k0rdent/catalog/refs/heads/main/apps/k0rdent-u
 
 ## Delete Tool Design
 
-### Tool: k0.catalog.delete_servicetemplate
+### Tool: k0rdent.catalog.delete_servicetemplate
 
 **Purpose:** Remove ServiceTemplate and associated HelmRepository from namespace(s)
 
@@ -324,8 +324,8 @@ Since we're keeping SQLite and the same database schema, migration is straightfo
 1. **Update data source**: Change from tarball extraction to JSON index fetch
 2. **Update parsing logic**: Replace YAML file parsing with JSON parsing
 3. **Update manifest fetching**: Change from disk reads to GitHub raw URL fetches
-4. **Add delete tool**: Implement `k0.catalog.delete_servicetemplate`
-5. **Rename install tool**: `k0.catalog.install` → `k0.catalog.install_servicetemplate`
+4. **Add delete tool**: Implement `k0rdent.catalog.delete_servicetemplate`
+5. **Rename install tool**: `k0rdent.catalog.install` → `k0rdent.catalog.install_servicetemplate`
 6. **Update tests**: Replace tarball fixtures with JSON fixtures
 7. **Verify**: Run all unit and integration tests
 

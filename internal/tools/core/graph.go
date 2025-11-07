@@ -22,9 +22,9 @@ import (
 )
 
 const (
-	graphScheme      = "k0"
+	graphScheme      = "k0rdent"
 	graphHost        = "graph"
-	graphURITemplate = "k0://graph"
+	graphURITemplate = "k0rdent://graph"
 	graphMIMEType    = "application/json"
 )
 
@@ -125,7 +125,7 @@ func (m *GraphManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 		return err
 	}
 
-	ctx, logger := toolContext(ctx, m.session, "k0.graph.subscribe", "tool.graph")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.graph.subscribe", "tool.graph")
 	logger = logger.With(
 		"uri", req.Params.URI,
 		"namespaces", mapKeys(filter.namespaces),
@@ -166,7 +166,7 @@ func (m *GraphManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	if m == nil {
 		return fmt.Errorf("graph manager not configured")
 	}
-	ctx, logger := toolContext(ctx, m.session, "k0.graph.unsubscribe", "tool.graph")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.graph.unsubscribe", "tool.graph")
 	logger = logger.With("uri", req.Params.URI)
 	logger.Info("unsubscribing from graph stream")
 
@@ -743,12 +743,11 @@ func registerGraph(server *mcp.Server, session *runtime.Session, manager *GraphM
 
 	tool := &graphTool{manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.graph.snapshot",
+		Name:        "k0rdent.graph.snapshot",
 		Description: "Return a graph snapshot of K0rdent resources",
 	}, tool.snapshot)
-
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		Name:        "k0.graph",
+		Name:        "k0rdent.graph",
 		Title:       "K0rdent graph stream",
 		Description: "Streaming graph deltas for K0rdent resources",
 		URITemplate: graphURITemplate,

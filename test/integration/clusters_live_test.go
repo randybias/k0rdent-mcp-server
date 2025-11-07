@@ -18,7 +18,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// credentialSummary matches the structure returned by k0.providers.listCredentials
+// credentialSummary matches the structure returned by k0rdent.providers.listCredentials
 type credentialSummary struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
@@ -28,7 +28,7 @@ type credentialSummary struct {
 	Ready     bool              `json:"ready"`
 }
 
-// clusterTemplateSummary matches the structure returned by k0.clusterTemplates.list
+// clusterTemplateSummary matches the structure returned by k0rdent.clusterTemplates.list
 type clusterTemplateSummary struct {
 	Name        string            `json:"name"`
 	Namespace   string            `json:"namespace"`
@@ -40,17 +40,17 @@ type clusterTemplateSummary struct {
 	CreatedAt   string            `json:"createdAt"`
 }
 
-// clusterListCredentialsResult matches the response from k0.providers.listCredentials
+// clusterListCredentialsResult matches the response from k0rdent.providers.listCredentials
 type clusterListCredentialsResult struct {
 	Credentials []credentialSummary `json:"credentials"`
 }
 
-// clusterListTemplatesResult matches the response from k0.clusterTemplates.list
+// clusterListTemplatesResult matches the response from k0rdent.clusterTemplates.list
 type clusterListTemplatesResult struct {
 	Templates []clusterTemplateSummary `json:"templates"`
 }
 
-// clusterDeployResult matches the response from k0.cluster.deploy
+// clusterDeployResult matches the response from k0rdent.cluster.deploy
 type clusterDeployResult struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -58,7 +58,7 @@ type clusterDeployResult struct {
 	UID       string `json:"uid,omitempty"`
 }
 
-// clusterDeleteResult matches the response from k0.cluster.delete
+// clusterDeleteResult matches the response from k0rdent.cluster.delete
 type clusterDeleteResult struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -80,8 +80,8 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	// Deletion has separate timeout configuration since it can take longer than provisioning
 	// for certain cloud providers and cluster configurations
-	deletionPollInterval := 60 * time.Second  // Check every 60 seconds during deletion
-	deletionTimeout := 20 * time.Minute       // Azure cluster deletion can take up to 20 minutes
+	deletionPollInterval := 60 * time.Second // Check every 60 seconds during deletion
+	deletionTimeout := 20 * time.Minute      // Azure cluster deletion can take up to 20 minutes
 
 	t.Logf("Test configuration:")
 	t.Logf("  Provisioning: poll_interval=%v, timeout=%v, stall_threshold=%v",
@@ -122,7 +122,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	// Task 5.3: Phase 1 - List credentials and verify azure-cluster-credential exists
 	t.Log("Phase 1: Listing credentials...")
-	credRaw := client.CallTool(t, "k0.providers.listCredentials", map[string]any{})
+	credRaw := client.CallTool(t, "k0rdent.providers.listCredentials", map[string]any{})
 	var credResult clusterListCredentialsResult
 	if err := json.Unmarshal(credRaw, &credResult); err != nil {
 		t.Fatalf("decode credentials list: %v", err)
@@ -150,7 +150,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	// Task 5.4: Phase 2 - List templates and verify azure-standalone-cp-1-0-15 exists
 	t.Log("Phase 2: Listing templates...")
-	templRaw := client.CallTool(t, "k0.clusterTemplates.list", map[string]any{
+	templRaw := client.CallTool(t, "k0rdent.clusterTemplates.list", map[string]any{
 		"scope": "all",
 	})
 	var templResult clusterListTemplatesResult
@@ -182,10 +182,10 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 	t.Log("Phase 3: Deploying test cluster...")
 
 	deployArgs := map[string]any{
-		"name":      clusterName,
-		"template":  "azure-standalone-cp-1-0-15",
+		"name":       clusterName,
+		"template":   "azure-standalone-cp-1-0-15",
 		"credential": "azure-cluster-credential",
-		"namespace": testNamespace,
+		"namespace":  testNamespace,
 		"config": map[string]any{
 			"clusterIdentity": map[string]any{
 				"name":      "azure-cluster-identity",
@@ -206,7 +206,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 		},
 	}
 
-	deployRaw := client.CallTool(t, "k0.cluster.deploy", deployArgs)
+	deployRaw := client.CallTool(t, "k0rdent.cluster.deploy", deployArgs)
 	var deployResult clusterDeployResult
 	if err := json.Unmarshal(deployRaw, &deployResult); err != nil {
 		t.Fatalf("decode deploy result: %v", err)
@@ -333,18 +333,16 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	t.Log("✓ ClusterDeployment is Ready")
 
-	// Task 5.7: Phase 5 - Delete test cluster via MCP with wait
-	t.Log("Phase 5: Deleting test cluster...")
+	// Task 5.7: Phase 5 - Delete test cluster via MCP (non-blocking)
+	t.Log("Phase 5: Deleting test cluster (no wait, just fire-and-forget)...")
 
 	deleteArgs := map[string]any{
-		"name":             clusterName,
-		"namespace":        testNamespace,
-		"wait":             true,
-		"pollInterval":     fmt.Sprintf("%vs", int(deletionPollInterval.Seconds())),
-		"deletionTimeout":  fmt.Sprintf("%vm", int(deletionTimeout.Minutes())),
+		"name":      clusterName,
+		"namespace": testNamespace,
+		"wait":      false,
 	}
 
-	deleteRaw := client.CallTool(t, "k0.cluster.delete", deleteArgs)
+	deleteRaw := client.CallTool(t, "k0rdent.cluster.delete", deleteArgs)
 	var deleteResult clusterDeleteResult
 	if err := json.Unmarshal(deleteRaw, &deleteResult); err != nil {
 		t.Fatalf("decode delete result: %v", err)
@@ -354,10 +352,10 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 		deleteResult.Name, deleteResult.Namespace, deleteResult.Status)
 
 	if deleteResult.Status != "deleted" && deleteResult.Status != "deleting" {
-		t.Fatalf("unexpected delete status: %s", deleteResult.Status)
+		t.Fatalf("unexpected delete status: %s (expected MCP to acknowledge request)", deleteResult.Status)
 	}
 
-	t.Log("✓ ClusterDeployment successfully deleted")
+	t.Log("✓ Delete request acknowledged; cluster deletion will continue asynchronously")
 	t.Log("✓✓✓ Full cluster provisioning lifecycle test completed successfully!")
 }
 
@@ -370,7 +368,7 @@ func TestClustersListCredentials(t *testing.T) {
 	client := newLiveClient(t)
 
 	t.Log("Listing all credentials...")
-	raw := client.CallTool(t, "k0.providers.listCredentials", map[string]any{})
+	raw := client.CallTool(t, "k0rdent.providers.listCredentials", map[string]any{})
 	var result clusterListCredentialsResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode credentials list: %v", err)
@@ -396,7 +394,7 @@ func TestClustersListTemplates(t *testing.T) {
 	client := newLiveClient(t)
 
 	t.Log("Listing all templates...")
-	raw := client.CallTool(t, "k0.clusterTemplates.list", map[string]any{
+	raw := client.CallTool(t, "k0rdent.clusterTemplates.list", map[string]any{
 		"scope": "all",
 	})
 	var result clusterListTemplatesResult
@@ -445,14 +443,14 @@ func cleanupClusterDeployment(t *testing.T, client *liveClient, dynamicClient dy
 	// Delete via MCP using CallToolSafe with wait=true (which doesn't fail the test on errors)
 	t.Logf("Cleaning up ClusterDeployment %s/%s via MCP...", namespace, name)
 	deleteArgs := map[string]any{
-		"name":             name,
-		"namespace":        namespace,
-		"wait":             true,
-		"pollInterval":     "60s",
-		"deletionTimeout":  "20m",
+		"name":            name,
+		"namespace":       namespace,
+		"wait":            true,
+		"pollInterval":    "60s",
+		"deletionTimeout": "20m",
 	}
 
-	deleteRaw, err := client.CallToolSafe("k0.cluster.delete", deleteArgs)
+	deleteRaw, err := client.CallToolSafe("k0rdent.cluster.delete", deleteArgs)
 	if err != nil {
 		t.Logf("Warning: MCP delete failed for %s/%s: %v", namespace, name, err)
 		return

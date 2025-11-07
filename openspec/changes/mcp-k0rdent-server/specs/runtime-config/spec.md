@@ -21,4 +21,4 @@
 
 #### Scenario: Filter applied
 - WHEN the filter is set to `^team-`  
-- THEN only namespaces matching the regex are returned by `k0.namespaces.list()`
+- THEN only namespaces matching the regex are returned by `k0rdent.namespaces.list()`

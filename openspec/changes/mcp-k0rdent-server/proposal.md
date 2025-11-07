@@ -7,14 +7,14 @@
 
 ## What Changes
 - Implement an MCP server (Go, modelcontextprotocol/go-sdk) with tools:
-  - `k0.namespaces.list()`
-  - `k0.events.list(ns, sinceSeconds?, limit?, types?, forKind?, forName?)`
-  - `k0.podLogs.get(ns, pod, container?, tailLines?, sinceSeconds?, previous?, follow?)`
-  - `k0.k0rdent.serviceTemplates.list()`
-  - `k0.k0rdent.clusterDeployments.list(selector?)`
-  - `k0.k0rdent.multiClusterServices.list(selector?)`
-  - `k0.graph.snapshot(ns?, kinds?)`
-- Subscriptions: `sub.k0.events(ns)`, `sub.k0.graph(ns?, kinds?)`, `sub.k0.podLogs(ns, pod, container?)`.
+  - `k0rdent.namespaces.list()`
+  - `k0rdent.events.list(ns, sinceSeconds?, limit?, types?, forKind?, forName?)`
+  - `k0rdent.podLogs.get(ns, pod, container?, tailLines?, sinceSeconds?, previous?, follow?)`
+  - `k0rdent.k0rdent.serviceTemplates.list()`
+  - `k0rdent.k0rdent.clusterDeployments.list(selector?)`
+  - `k0rdent.k0rdent.multiClusterServices.list(selector?)`
+  - `k0rdent.graph.snapshot(ns?, kinds?)`
+- Subscriptions: `sub.k0rdent.events(ns)`, `sub.k0rdent.graph(ns?, kinds?)`, `sub.k0rdent.podLogs(ns, pod, container?)`.
 - Runtime config via env: one of `K0RDENT_MGMT_KUBECONFIG_{PATH|B64|TEXT}` (+ `K0RDENT_MGMT_CONTEXT`), `AUTH_MODE` (`DEV_ALLOW_ANY`|`OIDC_REQUIRED`), optional `K0RDENT_NAMESPACE_FILTER`.
 - HA via client-go **leader election**; add `/healthz` and build ldflags.
 
@@ -31,7 +31,7 @@
 ## Acceptance
 - `openspec validate mcp-k0rdent-server --strict` passes.
 - Tools list namespaces, events (with field selectors), and pod logs (snapshot + follow).
-- k0rdent CRDs list successfully; `k0.graph.snapshot` includes edges:
+- k0rdent CRDs list successfully; `k0rdent.graph.snapshot` includes edges:
   - `ClusterDeployment.spec.serviceSpec.services[].template` → ServiceTemplate
   - `MultiClusterService` → targeted clusters (selector/precedence)
 - No request accepted when `AUTH_MODE=OIDC_REQUIRED` and Bearer is missing.

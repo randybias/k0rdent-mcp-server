@@ -29,13 +29,13 @@ The manager reuses `runtime.Session.Clients.Dynamic`. No local cache is required
 - All list operations respect the filter by precomputing allowed namespaces (globally `["kcm-system"]` plus filter-matched ones).
 
 ## Tool contracts
-### `k0.clusters.listCredentials`
+### `k0rdent.clusters.listCredentials`
 Input: optional `namespace` filter. Output: array with `name`, `namespace`, `provider`, `labels`, `createdAt`, `ready` (derived from status conditions). Hidden credentials (outside allowed namespaces) are filtered out.
 
-### `k0.clusters.listTemplates`
+### `k0rdent.clusters.listTemplates`
 Input: `scope` (`"global"|"local"|"all"`), optional namespace. Output: array with slug, description, cloud tags, version, config schema summary (fields + required keys). For templates referencing sample configs, include link fields gleaned from annotations.
 
-### `k0.clusters.deploy`
+### `k0rdent.clusters.deploy`
 Input:
 - `name`
 - `template` (string, may be `namespace/name` or just name when target namespace is known)
@@ -58,7 +58,7 @@ Flow:
 - Log at INFO level for successful deployments and WARN for validation failures.
 
 ## Deletion flow
-### `k0.clusters.delete`
+### `k0rdent.clusters.delete`
 Input: `name`, optional `namespace`
 
 Flow:

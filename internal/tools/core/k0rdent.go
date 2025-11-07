@@ -52,19 +52,19 @@ func registerK0rdentTools(server *mcp.Server, session *runtime.Session) error {
 
 	stTool := &serviceTemplatesTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.k0rdent.serviceTemplates.list",
+		Name:        "k0rdent.k0rdent.serviceTemplates.list",
 		Description: "List K0rdent ServiceTemplates",
 	}, stTool.list)
 
 	cdTool := &clusterDeploymentsTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.k0rdent.clusterDeployments.list",
+		Name:        "k0rdent.k0rdent.clusterDeployments.list",
 		Description: "List K0rdent ClusterDeployments",
 	}, cdTool.list)
 
 	msTool := &multiClusterServicesTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0.k0rdent.multiClusterServices.list",
+		Name:        "k0rdent.k0rdent.multiClusterServices.list",
 		Description: "List K0rdent MultiClusterServices",
 	}, msTool.list)
 

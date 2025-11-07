@@ -7,9 +7,9 @@
 
 ## What Changes
 - Add a catalog client that fetches and caches the k0rdent catalog archive (GitHub tarball) and builds an index of applications → ServiceTemplate versions → manifest bundle paths.
-- Introduce MCP tools under the `k0.catalog` namespace:
-  - `k0.catalog.list(app?)` returns available catalog applications and their ServiceTemplate versions (slug, title, summary, validated platforms).
-  - `k0.catalog.install(app, template, version)` downloads the corresponding manifest bundle, installs/updates the required `HelmRepository`, and applies the ServiceTemplate CR.
+- Introduce MCP tools under the `k0rdent.catalog` namespace:
+  - `k0rdent.catalog.list(app?)` returns available catalog applications and their ServiceTemplate versions (slug, title, summary, validated platforms).
+  - `k0rdent.catalog.install(app, template, version)` downloads the corresponding manifest bundle, installs/updates the required `HelmRepository`, and applies the ServiceTemplate CR.
 - Reuse the existing runtime session’s dynamic client to apply resources, performing server-side apply with field ownership and namespace filter enforcement (only install when namespace filter allows the template’s namespace, if any).
 - Add structured logging, latency metrics, and error handling around catalog downloads and Kubernetes apply calls; surface validation errors back through MCP error codes.
 - Document the new catalog workflow (tool signatures, expected prerequisites like network access to GitHub/ghcr.io, cache invalidation).
@@ -32,8 +32,8 @@
 
 ## Acceptance
 - `openspec validate add-catalog-install-tool --strict` passes.
-- `k0.catalog.list()` returns catalog entries with slug/name/summary and available ServiceTemplate versions without downloading manifests for each call (uses cached index).
-- `k0.catalog.install(app="minio", template="minio", version="14.1.2")` creates/updates the `HelmRepository` noted in the bundle and applies the ServiceTemplate CR; repeated calls are idempotent.
+- `k0rdent.catalog.list()` returns catalog entries with slug/name/summary and available ServiceTemplate versions without downloading manifests for each call (uses cached index).
+- `k0rdent.catalog.install(app="minio", template="minio", version="14.1.2")` creates/updates the `HelmRepository` noted in the bundle and applies the ServiceTemplate CR; repeated calls are idempotent.
 - Namespace filter rules remain enforced: installing into disallowed namespace (if template is namespaced) returns `forbidden`.
 - Unit tests cover catalog index parsing, cache refresh, successful install, missing template/version, and Kubernetes apply failures.
 - Documentation explains prerequisites (network reachability to GitHub & ghcr.io) and provides example MCP requests.
