@@ -6,7 +6,6 @@ import (
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // ListClusters retrieves ClusterDeployment resources from the specified namespaces.
@@ -41,9 +40,8 @@ func (m *Manager) ListClusters(ctx context.Context, namespaces []string) ([]Clus
 		)
 
 		// Convert each ClusterDeployment to summary
-		for _, item := range list.Items {
-			summary := clusterDeploymentToSummary(&item)
-			summaries = append(summaries, summary)
+		for i := range list.Items {
+			summaries = append(summaries, SummarizeClusterDeployment(&list.Items[i]))
 		}
 	}
 
@@ -53,24 +51,4 @@ func (m *Manager) ListClusters(ctx context.Context, namespaces []string) ([]Clus
 	)
 
 	return summaries, nil
-}
-
-// clusterDeploymentToSummary extracts key fields from a ClusterDeployment CR.
-func clusterDeploymentToSummary(obj *unstructured.Unstructured) ClusterDeploymentSummary {
-	summary := ClusterDeploymentSummary{
-		Name:      obj.GetName(),
-		Namespace: obj.GetNamespace(),
-		Labels:    obj.GetLabels(),
-		CreatedAt: obj.GetCreationTimestamp().Time,
-	}
-
-	// Extract template reference from spec.template
-	if template, found, err := unstructured.NestedString(obj.Object, "spec", "template"); err == nil && found {
-		summary.Template = template
-	}
-
-	// Extract ready status from status.conditions
-	summary.Ready = IsResourceReady(obj)
-
-	return summary
 }

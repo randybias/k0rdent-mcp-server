@@ -53,7 +53,21 @@ For AWS deployments:
 
 ## Available Tools
 
-### k0rdent.clusters.listCredentials
+### k0rdent.mgmt.providers.list
+
+Returns the cloud providers supported by k0rdent credential onboarding (currently AWS, Azure, Google Cloud, and VMware vSphere). Use this tool to discover the `provider` value expected by `k0rdent.mgmt.providers.listCredentials`.
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.mgmt.providers.list",
+    "arguments": {}
+  }
+}
+```
+
+### k0rdent.mgmt.providers.listCredentials
 
 Lists accessible `Credential` resources for cluster provisioning.
 
@@ -101,7 +115,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listCredentials",
+    "name": "k0rdent.mgmt.providers.listCredentials",
     "arguments": {}
   }
 }
@@ -115,7 +129,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listCredentials",
+    "name": "k0rdent.mgmt.providers.listCredentials",
     "arguments": {
       "namespace": "team-a"
     }
@@ -131,7 +145,7 @@ Lists accessible `Credential` resources for cluster provisioning.
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listCredentials",
+    "name": "k0rdent.mgmt.providers.listCredentials",
     "arguments": {
       "scope": "global"
     }
@@ -145,7 +159,7 @@ The `ready` field is derived from the credential's `status.conditions`:
 - `true` - Credential has been validated and is ready for use
 - `false` - Credential validation pending or failed
 
-### k0rdent.clusters.listTemplates
+### k0rdent.mgmt.clusterTemplates.list
 
 Lists available `ClusterTemplate` resources for cluster provisioning.
 
@@ -196,7 +210,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listTemplates",
+    "name": "k0rdent.mgmt.clusterTemplates.list",
     "arguments": {}
   }
 }
@@ -210,7 +224,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listTemplates",
+    "name": "k0rdent.mgmt.clusterTemplates.list",
     "arguments": {
       "scope": "global"
     }
@@ -226,7 +240,7 @@ Lists available `ClusterTemplate` resources for cluster provisioning.
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listTemplates",
+    "name": "k0rdent.mgmt.clusterTemplates.list",
     "arguments": {
       "scope": "local",
       "namespace": "team-a"
@@ -241,7 +255,7 @@ Templates include a `configSchema` outline derived from the template's `spec.sch
 - `required` - List of required fields
 - `properties` - Top-level configuration fields with types
 
-### k0rdent.clusters.deploy
+### k0rdent.mgmt.clusterDeployments.deploy
 
 Creates or updates a `ClusterDeployment` resource to provision a child cluster.
 
@@ -286,7 +300,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.deploy",
+    "name": "k0rdent.mgmt.clusterDeployments.deploy",
     "arguments": {
       "name": "my-azure-cluster",
       "template": "azure-standalone-cp-1-0-15",
@@ -326,7 +340,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 8,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.deploy",
+    "name": "k0rdent.mgmt.clusterDeployments.deploy",
     "arguments": {
       "name": "my-aws-cluster",
       "template": "aws-standalone-cp-0-0-3",
@@ -363,7 +377,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
   "id": 9,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.deploy",
+    "name": "k0rdent.mgmt.clusterDeployments.deploy",
     "arguments": {
       "name": "team-cluster",
       "template": "team-a/custom-template",
@@ -387,7 +401,7 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
 - **Validation**: Verifies template and credential exist before applying
 - **Config Flexibility**: Accepts any valid config structure for the template
 
-### k0rdent.clusters.delete
+### k0rdent.mgmt.clusterDeployments.delete
 
 Deletes a `ClusterDeployment` resource to deprovision a child cluster.
 
@@ -427,7 +441,7 @@ Uses the same rules as `deploy`:
   "id": 10,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.delete",
+    "name": "k0rdent.mgmt.clusterDeployments.delete",
     "arguments": {
       "name": "my-test-cluster"
     }
@@ -443,7 +457,7 @@ Uses the same rules as `deploy`:
   "id": 11,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.delete",
+    "name": "k0rdent.mgmt.clusterDeployments.delete",
     "arguments": {
       "name": "team-cluster",
       "namespace": "team-a"
@@ -551,25 +565,39 @@ Approximate hourly costs for baseline configuration (westus2):
 
 ### Complete Cluster Provisioning Flow
 
-1. **Discover Available Credentials**
+1. **List Supported Providers**
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listCredentials",
+    "name": "k0rdent.mgmt.providers.list",
     "arguments": {}
   }
 }
 ```
 
-2. **Browse Available Templates**
+2. **Discover Available Credentials**
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.listTemplates",
+    "name": "k0rdent.mgmt.providers.listCredentials",
+    "arguments": {
+      "provider": "azure"
+    }
+  }
+}
+```
+
+3. **Browse Available Templates**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.mgmt.clusterTemplates.list",
     "arguments": {
       "scope": "global"
     }
@@ -577,13 +605,13 @@ Approximate hourly costs for baseline configuration (westus2):
 }
 ```
 
-3. **Deploy New Cluster**
+4. **Deploy New Cluster**
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.deploy",
+    "name": "k0rdent.mgmt.clusterDeployments.deploy",
     "arguments": {
       "name": "production-cluster-01",
       "template": "azure-standalone-cp-1-0-15",
@@ -617,22 +645,63 @@ Approximate hourly costs for baseline configuration (westus2):
 
 4. **Monitor Deployment Status**
 
-Use existing k0rdent tools to monitor progress:
+Use `k0rdent.mgmt.clusterDeployments.list` (or the `listAll` variant) to monitor progress without leaving MCP. Each summary now includes template/credential references, provider/region, and the latest conditions so you can diagnose issues immediately:
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.k0rdent.clusterDeployments.list",
-    "arguments": {}
+    "name": "k0rdent.mgmt.clusterDeployments.list",
+    "arguments": {
+      "namespace": "kcm-system"
+    }
   }
 }
 ```
 
-Check the `status` field for:
-- `Provisioning` - Infrastructure being created
-- `Provisioned` - Infrastructure ready, Kubernetes bootstrapping
-- `Ready` - Cluster fully operational
+Example response (abbreviated):
+
+```json
+{
+  "clusters": [
+    {
+      "name": "production-cluster-01",
+      "namespace": "kcm-system",
+      "templateRef": {
+        "name": "azure-standalone-cp-1-0-15",
+        "version": "1.0.15"
+      },
+      "credentialRef": {
+        "name": "azure-cluster-credential",
+        "namespace": "kcm-system"
+      },
+      "cloudProvider": "azure",
+      "region": "westus2",
+      "ready": true,
+      "phase": "Ready",
+      "conditions": [
+        {
+          "type": "Ready",
+          "status": "True",
+          "lastTransitionTime": "2025-05-04T07:22:10Z"
+        }
+      ],
+      "kubeconfigSecret": {
+        "name": "production-cluster-01-kubeconfig",
+        "namespace": "kcm-system"
+      }
+    }
+  ]
+}
+```
+
+Key fields:
+
+- `templateRef` – shows the exact ClusterTemplate + version in use.
+- `credentialRef` / `clusterIdentityRef` – identify which credentials and identities were applied.
+- `cloudProvider` and `region` – inferred from labels/config to simplify filtering.
+- `phase`, `ready`, `message`, and detailed `conditions` – mirror the ClusterDeployment status.
+- `kubeconfigSecret` / `managementURL` – operational shortcuts for connecting to or viewing the workload cluster.
 
 5. **Delete Cluster (When Done)**
 
@@ -640,7 +709,7 @@ Check the `status` field for:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.clusters.delete",
+    "name": "k0rdent.mgmt.clusterDeployments.delete",
     "arguments": {
       "name": "production-cluster-01"
     }
@@ -654,7 +723,7 @@ Check the `status` field for:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.k0rdent.clusterDeployments.list",
+    "name": "k0rdent.mgmt.clusterDeployments.listAll",
     "arguments": {}
   }
 }
@@ -677,7 +746,7 @@ The cluster should no longer appear in the list.
 }
 ```
 
-**Resolution**: Use `k0rdent.clusters.listCredentials` to see available credentials.
+**Resolution**: Use `k0rdent.mgmt.providers.listCredentials` to see available credentials.
 
 **Missing Template**
 
@@ -690,7 +759,7 @@ The cluster should no longer appear in the list.
 }
 ```
 
-**Resolution**: Use `k0rdent.clusters.listTemplates` to see available templates.
+**Resolution**: Use `k0rdent.mgmt.clusterTemplates.list` to see available templates.
 
 **Namespace Forbidden**
 
@@ -958,3 +1027,17 @@ Factors affecting deployment time:
 - [k0rdent Cluster Documentation](https://docs.k0rdent.io/latest/user/user-create-cluster) - Detailed cluster creation guide
 - [Catalog Tools](./catalog.md) - ServiceTemplate installation
 - [k0rdent Documentation](https://docs.k0rdent.io) - Platform documentation
+
+### k0rdent.mgmt.providers.listIdentities
+
+Lists ClusterIdentity resources referenced by credentials, showing the identity kind/provider and which credentials use it. This is useful when following the [credentials process](https://docs.k0rdent.io/latest/admin/access/credentials/credentials-process/) and validating identity wiring before deployments.
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.mgmt.providers.listIdentities",
+    "arguments": {}
+  }
+}
+```

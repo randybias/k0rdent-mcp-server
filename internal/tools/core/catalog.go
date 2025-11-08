@@ -74,20 +74,35 @@ func registerCatalog(server *mcp.Server, session *runtime.Session, manager *cata
 
 	listTool := &catalogListTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.catalog.list",
+		Name:        "k0rdent.catalog.serviceTemplates.list",
 		Description: "List available ServiceTemplates from the k0rdent catalog",
+		Meta: mcp.Meta{
+			"plane":    "catalog",
+			"category": "serviceTemplates",
+			"action":   "list",
+		},
 	}, listTool.list)
 
 	installTool := &catalogInstallTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.catalog.install_servicetemplate",
+		Name:        "k0rdent.mgmt.serviceTemplates.install_from_catalog",
 		Description: "Install a ServiceTemplate from the k0rdent catalog. In DEV_ALLOW_ANY mode (uses kubeconfig), installs to kcm-system by default. In OIDC_REQUIRED mode (uses bearer token), requires explicit namespace or all_namespaces flag.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "serviceTemplates",
+			"action":   "install_from_catalog",
+		},
 	}, installTool.install)
 
 	deleteTool := &catalogDeleteServiceTemplateTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.catalog.delete_servicetemplate",
+		Name:        "k0rdent.mgmt.serviceTemplates.delete",
 		Description: "Delete a ServiceTemplate and optionally its HelmRepository from k0rdent catalog. Follows same authentication modes as install (DEV_ALLOW_ANY, OIDC_REQUIRED). Returns success even if resource not found (idempotent).",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "serviceTemplates",
+			"action":   "delete",
+		},
 	}, deleteTool.delete)
 
 	return nil

@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/clusters"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -13,9 +14,9 @@ import (
 )
 
 var (
-	serviceTemplateGVR    = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "servicetemplates"}
-	clusterDeploymentGVR  = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "clusterdeployments"}
-	multiClusterServiceGVR = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "multiclusterservices"}
+	serviceTemplateGVR                  = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "servicetemplates"}
+	clusterDeploymentGVR                = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "clusterdeployments"}
+	multiClusterServiceGVR              = schema.GroupVersionResource{Group: "k0rdent.mirantis.com", Version: "v1beta1", Resource: "multiclusterservices"}
 	runtimeDefaultUnstructuredConverter = runtime.DefaultUnstructuredConverter
 )
 
@@ -31,14 +32,7 @@ type ServiceTemplateSummary struct {
 }
 
 // ClusterDeploymentSummary provides a compact view of a ClusterDeployment.
-type ClusterDeploymentSummary struct {
-	Name             string            `json:"name"`
-	Namespace        string            `json:"namespace"`
-	Labels           map[string]string `json:"labels,omitempty"`
-	TemplateRef      string            `json:"templateRef,omitempty"`
-	CredentialRef    string            `json:"credentialRef,omitempty"`
-	ServiceTemplates []string          `json:"serviceTemplates,omitempty"`
-}
+type ClusterDeploymentSummary = clusters.ClusterDeploymentSummary
 
 // MultiClusterServiceSummary provides a compact view of a MultiClusterService.
 type MultiClusterServiceSummary struct {
@@ -119,20 +113,7 @@ func SummarizeServiceTemplate(obj *unstructured.Unstructured) ServiceTemplateSum
 }
 
 func SummarizeClusterDeployment(obj *unstructured.Unstructured) ClusterDeploymentSummary {
-	if obj == nil {
-		return ClusterDeploymentSummary{}
-	}
-	templateRef, _, _ := unstructured.NestedString(obj.Object, "spec", "template")
-	credentialRef, _, _ := unstructured.NestedString(obj.Object, "spec", "credential")
-    services := ExtractServiceTemplates(obj)
-	return ClusterDeploymentSummary{
-		Name:             obj.GetName(),
-		Namespace:        obj.GetNamespace(),
-		Labels:           obj.GetLabels(),
-		TemplateRef:      templateRef,
-		CredentialRef:    credentialRef,
-		ServiceTemplates: services,
-	}
+	return clusters.SummarizeClusterDeployment(obj)
 }
 
 func SummarizeMultiClusterService(obj *unstructured.Unstructured) MultiClusterServiceSummary {
@@ -151,22 +132,6 @@ func SummarizeMultiClusterService(obj *unstructured.Unstructured) MultiClusterSe
 		MatchLabels:  matchLabels,
 		ServiceCount: serviceCount,
 	}
-}
-
-func ExtractServiceTemplates(obj *unstructured.Unstructured) []string {
-	list, found, err := unstructured.NestedSlice(obj.Object, "spec", "serviceSpec", "services")
-	if !found || err != nil {
-		return nil
-	}
-	templates := make([]string, 0, len(list))
-	for _, entry := range list {
-		if m, ok := entry.(map[string]any); ok {
-			if ref, ok := m["template"].(string); ok && ref != "" {
-				templates = append(templates, ref)
-			}
-		}
-	}
-	return templates
 }
 
 // MatchDeploymentSelector evaluates a label selector (matchLabels & matchExpressions) against the provided labels.
@@ -194,11 +159,11 @@ func MatchDeploymentSelector(objLabels map[string]string, selector map[string]an
 	k8sSelector, err := metav1.LabelSelectorAsSelector(&lblSelector)
 	if err != nil {
 		return false
-}
+	}
 	return k8sSelector.Matches(labels.Set(objLabels))
 }
 
 // GroupVersionResources exposes the GVRs used by higher-level tooling.
-func ServiceTemplateGVR() schema.GroupVersionResource    { return serviceTemplateGVR }
-func ClusterDeploymentGVR() schema.GroupVersionResource  { return clusterDeploymentGVR }
+func ServiceTemplateGVR() schema.GroupVersionResource     { return serviceTemplateGVR }
+func ClusterDeploymentGVR() schema.GroupVersionResource   { return clusterDeploymentGVR }
 func MultiClusterServiceGVR() schema.GroupVersionResource { return multiClusterServiceGVR }

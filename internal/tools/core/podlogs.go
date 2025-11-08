@@ -263,12 +263,17 @@ func registerPodLogs(server *mcp.Server, session *runtime.Session, manager *PodL
 
 	tool := &podLogsTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.podLogs.get",
+		Name:        "k0rdent.mgmt.podLogs.get",
 		Description: "Get Kubernetes pod logs",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "podLogs",
+			"action":   "get",
+		},
 	}, tool.get)
 
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		Name:        "k0rdent.podLogs",
+		Name:        "k0rdent.mgmt.podLogs",
 		Title:       "Kubernetes pod logs",
 		Description: "Streaming pod logs for troubleshooting",
 		URITemplate: podLogsURITemplate,

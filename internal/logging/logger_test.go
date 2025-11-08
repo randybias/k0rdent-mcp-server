@@ -67,7 +67,7 @@ func TestWithContextEnrichment(t *testing.T) {
 	ctx := context.Background()
 	ctx = WithRequestID(ctx, "req-123")
 	ctx = WithSessionID(ctx, "sess-456")
-	ctx = WithToolName(ctx, "k0rdent.namespaces.list")
+	ctx = WithToolName(ctx, "k0rdent.mgmt.namespaces.list")
 	ctx = WithNamespace(ctx, "default")
 
 	enriched := WithContext(ctx, logger)
@@ -83,8 +83,8 @@ func TestWithContextEnrichment(t *testing.T) {
 	if got := SessionID(ctx); got != "sess-456" {
 		t.Fatalf("SessionID() = %q, want %q", got, "sess-456")
 	}
-	if got := ToolName(ctx); got != "k0rdent.namespaces.list" {
-		t.Fatalf("ToolName() = %q, want %q", got, "k0rdent.namespaces.list")
+	if got := ToolName(ctx); got != "k0rdent.mgmt.namespaces.list" {
+		t.Fatalf("ToolName() = %q, want %q", got, "k0rdent.mgmt.namespaces.list")
 	}
 	if got := Namespace(ctx); got != "default" {
 		t.Fatalf("Namespace() = %q, want %q", got, "default")

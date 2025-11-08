@@ -60,7 +60,7 @@ The catalog manager caches index data in a SQLite database to improve performanc
 
 ## Available Tools
 
-### k0rdent.catalog.list
+### k0rdent.catalog.serviceTemplates.list
 
 Lists available ServiceTemplates from the k0rdent catalog with optional filtering.
 
@@ -104,7 +104,7 @@ Lists available ServiceTemplates from the k0rdent catalog with optional filterin
   "id": 1,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {}
   }
 }
@@ -118,7 +118,7 @@ Lists available ServiceTemplates from the k0rdent catalog with optional filterin
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {
       "app": "minio"
     }
@@ -134,7 +134,7 @@ Lists available ServiceTemplates from the k0rdent catalog with optional filterin
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {
       "refresh": true
     }
@@ -142,7 +142,7 @@ Lists available ServiceTemplates from the k0rdent catalog with optional filterin
 }
 ```
 
-### k0rdent.catalog.delete_servicetemplate
+### k0rdent.mgmt.serviceTemplates.delete
 
 Deletes ServiceTemplate resources from the management cluster that were previously installed via the catalog.
 
@@ -182,7 +182,7 @@ The delete tool behaves similarly to install:
   "id": 7,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.delete_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.delete",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -200,7 +200,7 @@ The delete tool behaves similarly to install:
   "id": 8,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.delete_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.delete",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -219,7 +219,7 @@ The delete tool behaves similarly to install:
   "id": 9,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.delete_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.delete",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -237,7 +237,7 @@ The delete tool behaves similarly to install:
 - **No Validation**: Does not check if MultiClusterService resources reference the template before deletion
 - **Management Cluster Only**: Deletes from the management cluster, not child clusters
 
-### k0rdent.catalog.install_servicetemplate
+### k0rdent.mgmt.serviceTemplates.install_from_catalog
 
 Installs a ServiceTemplate from the catalog to the management cluster.
 
@@ -278,7 +278,7 @@ The install tool behaves differently based on the server's authentication mode:
   "id": 4,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.install_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.install_from_catalog",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -296,7 +296,7 @@ The install tool behaves differently based on the server's authentication mode:
   "id": 5,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.install_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.install_from_catalog",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -315,7 +315,7 @@ The install tool behaves differently based on the server's authentication mode:
   "id": 6,
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.install_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.install_from_catalog",
     "arguments": {
       "app": "minio",
       "template": "minio",
@@ -386,7 +386,7 @@ The catalog manager implements intelligent caching using SQLite for optimal perf
 
 ## Understanding Installation
 
-When you call `k0rdent.catalog.install_servicetemplate`, the server:
+When you call `k0rdent.mgmt.serviceTemplates.install_from_catalog`, the server:
 
 1. **Queries Cache**: Looks up version metadata in SQLite database
 2. **Fetches Manifests**: Downloads ServiceTemplate and optional HelmRepository YAML from GitHub raw URLs
@@ -404,7 +404,7 @@ When you call `k0rdent.catalog.install_servicetemplate`, the server:
 - **Management Cluster Only**: Installs resources to the management cluster, not child clusters
 - **Does Not Deploy Services**: Creates ServiceTemplate definition only; actual service deployment requires MultiClusterService
 - **Idempotent Operations**: Uses server-side apply, so repeated installs are safe
-- **Uninstall Support**: Use `k0rdent.catalog.delete_servicetemplate` to remove installed templates
+- **Uninstall Support**: Use `k0rdent.mgmt.serviceTemplates.delete` to remove installed templates
 - **No Upgrade Support**: No automated upgrade mechanism (manual deletion and reinstall required)
 
 ## Usage Workflow
@@ -417,7 +417,7 @@ When you call `k0rdent.catalog.install_servicetemplate`, the server:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {}
   }
 }
@@ -429,7 +429,7 @@ When you call `k0rdent.catalog.install_servicetemplate`, the server:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {
       "app": "ingress-nginx"
     }
@@ -447,7 +447,7 @@ Check the `versions` array in the response to see available versions.
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.install_servicetemplate",
+    "name": "k0rdent.mgmt.serviceTemplates.install_from_catalog",
     "arguments": {
       "app": "ingress-nginx",
       "template": "ingress-nginx",
@@ -483,7 +483,7 @@ Use standard Kubernetes tooling or the management API to create a MultiClusterSe
 }
 ```
 
-**Resolution**: Use `k0rdent.catalog.list` without filter to see all available apps.
+**Resolution**: Use `k0rdent.catalog.serviceTemplates.list` without filter to see all available apps.
 
 **Version Not Found**
 
@@ -493,7 +493,7 @@ Use standard Kubernetes tooling or the management API to create a MultiClusterSe
 }
 ```
 
-**Resolution**: Use `k0rdent.catalog.list` with app filter to see available versions.
+**Resolution**: Use `k0rdent.catalog.serviceTemplates.list` with app filter to see available versions.
 
 **Namespace Filter Rejection**
 
@@ -625,7 +625,7 @@ Future versions may include:
 
 ### Optimization Tips
 
-- **Cache Warmup**: Perform an initial `k0rdent.catalog.list` call on server startup to warm SQLite cache
+- **Cache Warmup**: Perform an initial `k0rdent.catalog.serviceTemplates.list` call on server startup to warm SQLite cache
 - **Adjust TTL**: Increase `CATALOG_CACHE_TTL` if catalog updates are infrequent (though timestamp validation is primary mechanism)
 - **Local Mirror**: Use `CATALOG_INDEX_URL` to point to a local mirror for faster downloads
 - **Persistent Cache**: Mount cache directory to persistent volume in containerized environments
@@ -691,7 +691,7 @@ Use the refresh parameter to bypass cache:
 {
   "method": "tools/call",
   "params": {
-    "name": "k0rdent.catalog.list",
+    "name": "k0rdent.catalog.serviceTemplates.list",
     "arguments": {
       "refresh": true
     }

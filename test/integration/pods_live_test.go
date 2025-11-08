@@ -56,7 +56,7 @@ func TestPodLogsLive(t *testing.T) {
         t.Fatalf("found pods with no containers; cannot run log test")
     }
 
-    raw := client.CallTool(t, "k0rdent.podLogs.get", map[string]any{
+    raw := client.CallTool(t, "k0rdent.mgmt.podLogs.get", map[string]any{
         "namespace": namespace,
         "pod":       podName,
         "container": container,

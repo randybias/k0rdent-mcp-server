@@ -14,6 +14,22 @@ type CredentialSummary struct {
 	Ready     bool              `json:"ready"`
 }
 
+// ProviderSummary lists supported infrastructure providers.
+type ProviderSummary struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
+
+// IdentitySummary links ClusterIdentity resources to the Credentials that reference them.
+type IdentitySummary struct {
+	Name        string   `json:"name"`
+	Namespace   string   `json:"namespace"`
+	Kind        string   `json:"kind,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+	Credentials []string `json:"credentials,omitempty"`
+}
+
 // ClusterTemplateSummary captures key metadata about a ClusterTemplate resource.
 type ClusterTemplateSummary struct {
 	Name        string            `json:"name"`
@@ -85,10 +101,38 @@ type DeleteResult struct {
 
 // ClusterDeploymentSummary captures key metadata about a ClusterDeployment resource.
 type ClusterDeploymentSummary struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Template  string            `json:"template,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Ready     bool              `json:"ready"`
-	CreatedAt time.Time         `json:"createdAt"`
+	Name               string             `json:"name"`
+	Namespace          string             `json:"namespace"`
+	Labels             map[string]string  `json:"labels,omitempty"`
+	Owner              string             `json:"owner,omitempty"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	AgeSeconds         int64              `json:"ageSeconds,omitempty"`
+	TemplateRef        ResourceReference  `json:"templateRef"`
+	CredentialRef      ResourceReference  `json:"credentialRef"`
+	ClusterIdentityRef ResourceReference  `json:"clusterIdentityRef,omitempty"`
+	ServiceTemplates   []string           `json:"serviceTemplates,omitempty"`
+	CloudProvider      string             `json:"cloudProvider,omitempty"`
+	Region             string             `json:"region,omitempty"`
+	Ready              bool               `json:"ready"`
+	Phase              string             `json:"phase,omitempty"`
+	Message            string             `json:"message,omitempty"`
+	Conditions         []ConditionSummary `json:"conditions,omitempty"`
+	KubeconfigSecret   ResourceReference  `json:"kubeconfigSecret,omitempty"`
+	ManagementURL      string             `json:"managementURL,omitempty"`
+}
+
+// ResourceReference describes a related Kubernetes resource.
+type ResourceReference struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+// ConditionSummary captures a simplified view of a Kubernetes condition.
+type ConditionSummary struct {
+	Type               string     `json:"type"`
+	Status             string     `json:"status"`
+	Reason             string     `json:"reason,omitempty"`
+	Message            string     `json:"message,omitempty"`
+	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
 }

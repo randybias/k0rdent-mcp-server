@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,10 +26,31 @@ type clustersListCredentialsTool struct {
 
 type clustersListCredentialsInput struct {
 	Namespace string `json:"namespace,omitempty"`
+	Provider  string `json:"provider,omitempty"`
 }
 
 type clustersListCredentialsResult struct {
 	Credentials []clusters.CredentialSummary `json:"credentials"`
+}
+
+type providersListTool struct {
+	session *runtime.Session
+}
+
+type providersListResult struct {
+	Providers []clusters.ProviderSummary `json:"providers"`
+}
+
+type providersListIdentitiesTool struct {
+	session *runtime.Session
+}
+
+type providersListIdentitiesInput struct {
+	Namespace string `json:"namespace,omitempty"`
+}
+
+type providersListIdentitiesResult struct {
+	Identities []clusters.IdentitySummary `json:"identities"`
 }
 
 type clustersListTemplatesTool struct {
@@ -88,40 +111,96 @@ type clustersListResult struct {
 	Clusters []clusters.ClusterDeploymentSummary `json:"clusters"`
 }
 
+var defaultProviderSummaries = []clusters.ProviderSummary{
+	{Name: "aws", Title: "Amazon Web Services"},
+	{Name: "azure", Title: "Microsoft Azure"},
+	{Name: "gcp", Title: "Google Cloud Platform"},
+	{Name: "vsphere", Title: "VMware vSphere"},
+}
+
 func registerClusters(server *mcp.Server, session *runtime.Session) error {
-	// Register k0rdent.providers.listCredentials
+	// Register k0rdent.mgmt.providers.list
+	providersTool := &providersListTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.mgmt.providers.list",
+		Description: "List supported infrastructure providers (e.g., AWS, Azure, Google Cloud, vSphere) available for credential onboarding.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "providers",
+			"action":   "list",
+		},
+	}, providersTool.list)
+
+	// Register k0rdent.mgmt.providers.listCredentials
 	listCredsTool := &clustersListCredentialsTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.providers.listCredentials",
-		Description: "List available provider Credentials for cluster provisioning. Returns credentials from kcm-system (global) plus namespaces allowed by the current session. Credentials are tied to infrastructure providers (Azure, AWS, GCP, vSphere, etc.).",
+		Name:        "k0rdent.mgmt.providers.listCredentials",
+		Description: "List available Credentials for a given provider. Returns credentials from kcm-system (global) plus namespaces allowed by the current session.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "providers",
+			"action":   "listCredentials",
+		},
 	}, listCredsTool.list)
 
-	// Register k0rdent.clusterTemplates.list
+	// Register k0rdent.mgmt.providers.listIdentities
+	identitiesTool := &providersListIdentitiesTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.mgmt.providers.listIdentities",
+		Description: "List ClusterIdentity resources referenced by Credentials, including provider metadata and associated credentials.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "providers",
+			"action":   "listIdentities",
+		},
+	}, identitiesTool.list)
+
+	// Register k0rdent.mgmt.clusterTemplates.list
 	listTemplsTool := &clustersListTemplatesTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.clusterTemplates.list",
+		Name:        "k0rdent.mgmt.clusterTemplates.list",
 		Description: "List available ClusterTemplates. Differentiates global (kcm-system) vs local templates, enforcing namespace filters. Input scope: 'global', 'local', or 'all'.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterTemplates",
+			"action":   "list",
+		},
 	}, listTemplsTool.list)
 
-	// Register k0rdent.clusters.list
+	// Register k0rdent.mgmt.clusterDeployments.list
 	listClustersTool := &clustersListTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.clusters.list",
+		Name:        "k0rdent.mgmt.clusterDeployments.list",
 		Description: "List all ClusterDeployments. Returns clusters from allowed namespaces with optional filtering by namespace.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterDeployments",
+			"action":   "list",
+		},
 	}, listClustersTool.list)
 
-	// Register k0rdent.cluster.deploy
+	// Register k0rdent.mgmt.clusterDeployments.deploy
 	deployTool := &clustersDeployTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.cluster.deploy",
+		Name:        "k0rdent.mgmt.clusterDeployments.deploy",
 		Description: "Deploy a new ClusterDeployment using specified template and credential. In DEV_ALLOW_ANY mode, defaults to kcm-system namespace. In OIDC_REQUIRED mode, requires explicit namespace.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterDeployments",
+			"action":   "deploy",
+		},
 	}, deployTool.deploy)
 
-	// Register k0rdent.cluster.delete
+	// Register k0rdent.mgmt.clusterDeployments.delete
 	deleteTool := &clustersDeleteTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.cluster.delete",
+		Name:        "k0rdent.mgmt.clusterDeployments.delete",
 		Description: "Delete a ClusterDeployment. Uses foreground propagation to ensure proper finalizer execution and resource cleanup. By default (wait=false), returns immediately after initiating deletion. Set wait=true to poll until deletion completes. Idempotent (returns success if already deleted).",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterDeployments",
+			"action":   "delete",
+		},
 	}, deleteTool.delete)
 
 	return nil
@@ -157,13 +236,77 @@ func (t *clustersListCredentialsTool) list(ctx context.Context, req *mcp.CallToo
 		return nil, clustersListCredentialsResult{}, fmt.Errorf("list credentials: %w", err)
 	}
 
+	providerFilter := strings.ToLower(strings.TrimSpace(input.Provider))
+	var filtered []clusters.CredentialSummary
+	if providerFilter == "" {
+		filtered = credentials
+	} else {
+		logger.Debug("filtering credentials by provider", "tool", name, "provider", providerFilter)
+		filtered = make([]clusters.CredentialSummary, 0, len(credentials))
+		for _, cred := range credentials {
+			if strings.EqualFold(cred.Provider, providerFilter) {
+				filtered = append(filtered, cred)
+			}
+		}
+	}
+
 	logger.Info("cluster credentials listed",
 		"tool", name,
-		"count", len(credentials),
+		"count", len(filtered),
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
-	return nil, clustersListCredentialsResult{Credentials: credentials}, nil
+	return nil, clustersListCredentialsResult{Credentials: filtered}, nil
+}
+
+func (t *providersListTool) list(ctx context.Context, req *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, providersListResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
+	logger.Info("listing infrastructure providers", "tool", name, "count", len(defaultProviderSummaries))
+
+	providers := make([]clusters.ProviderSummary, len(defaultProviderSummaries))
+	copy(providers, defaultProviderSummaries)
+
+	return nil, providersListResult{Providers: providers}, nil
+}
+
+func (t *providersListIdentitiesTool) list(ctx context.Context, req *mcp.CallToolRequest, input providersListIdentitiesInput) (*mcp.CallToolResult, providersListIdentitiesResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
+	start := time.Now()
+
+	credsHelper := &clustersListCredentialsTool{session: t.session}
+	targetNamespaces, err := credsHelper.resolveTargetNamespaces(ctx, input.Namespace, logger)
+	if err != nil {
+		logger.Error("failed to resolve target namespaces for identities", "tool", name, "error", err)
+		return nil, providersListIdentitiesResult{}, fmt.Errorf("resolve namespaces: %w", err)
+	}
+
+	logger.Debug("resolved namespaces for identity listing", "tool", name, "namespaces", targetNamespaces)
+
+	identities, err := t.session.Clusters.ListIdentities(ctx, targetNamespaces)
+	if err != nil {
+		logger.Error("failed to list identities", "tool", name, "error", err)
+		return nil, providersListIdentitiesResult{}, fmt.Errorf("list identities: %w", err)
+	}
+
+	for i := range identities {
+		sort.Strings(identities[i].Credentials)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		if identities[i].Namespace == identities[j].Namespace {
+			return identities[i].Name < identities[j].Name
+		}
+		return identities[i].Namespace < identities[j].Namespace
+	})
+
+	logger.Info("cluster identities listed",
+		"tool", name,
+		"count", len(identities),
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+
+	return nil, providersListIdentitiesResult{Identities: identities}, nil
 }
 
 func (t *clustersListTemplatesTool) list(ctx context.Context, req *mcp.CallToolRequest, input clustersListTemplatesInput) (*mcp.CallToolResult, clustersListTemplatesResult, error) {

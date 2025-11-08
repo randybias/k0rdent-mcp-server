@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// credentialSummary matches the structure returned by k0rdent.providers.listCredentials
+// credentialSummary matches the structure returned by k0rdent.mgmt.providers.listCredentials
 type credentialSummary struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
@@ -28,7 +29,7 @@ type credentialSummary struct {
 	Ready     bool              `json:"ready"`
 }
 
-// clusterTemplateSummary matches the structure returned by k0rdent.clusterTemplates.list
+// clusterTemplateSummary matches the structure returned by k0rdent.mgmt.clusterTemplates.list
 type clusterTemplateSummary struct {
 	Name        string            `json:"name"`
 	Namespace   string            `json:"namespace"`
@@ -40,17 +41,17 @@ type clusterTemplateSummary struct {
 	CreatedAt   string            `json:"createdAt"`
 }
 
-// clusterListCredentialsResult matches the response from k0rdent.providers.listCredentials
+// clusterListCredentialsResult matches the response from k0rdent.mgmt.providers.listCredentials
 type clusterListCredentialsResult struct {
 	Credentials []credentialSummary `json:"credentials"`
 }
 
-// clusterListTemplatesResult matches the response from k0rdent.clusterTemplates.list
+// clusterListTemplatesResult matches the response from k0rdent.mgmt.clusterTemplates.list
 type clusterListTemplatesResult struct {
 	Templates []clusterTemplateSummary `json:"templates"`
 }
 
-// clusterDeployResult matches the response from k0rdent.cluster.deploy
+// clusterDeployResult matches the response from k0rdent.mgmt.clusterDeployments.deploy
 type clusterDeployResult struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -58,11 +59,40 @@ type clusterDeployResult struct {
 	UID       string `json:"uid,omitempty"`
 }
 
-// clusterDeleteResult matches the response from k0rdent.cluster.delete
+// clusterDeleteResult matches the response from k0rdent.mgmt.clusterDeployments.delete
 type clusterDeleteResult struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	Status    string `json:"status"`
+}
+
+type resourceRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
+type conditionSummary struct {
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type clusterDeploymentSummary struct {
+	Name          string             `json:"name"`
+	Namespace     string             `json:"namespace"`
+	TemplateRef   resourceRef        `json:"templateRef"`
+	CredentialRef resourceRef        `json:"credentialRef"`
+	CloudProvider string             `json:"cloudProvider"`
+	Region        string             `json:"region"`
+	Ready         bool               `json:"ready"`
+	Phase         string             `json:"phase"`
+	Conditions    []conditionSummary `json:"conditions"`
+}
+
+type clusterListResult struct {
+	Clusters []clusterDeploymentSummary `json:"clusters"`
 }
 
 // TestClustersProvisioningLifecycleLive tests the full cluster provisioning lifecycle
@@ -122,7 +152,9 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	// Task 5.3: Phase 1 - List credentials and verify azure-cluster-credential exists
 	t.Log("Phase 1: Listing credentials...")
-	credRaw := client.CallTool(t, "k0rdent.providers.listCredentials", map[string]any{})
+	credRaw := client.CallTool(t, "k0rdent.mgmt.providers.listCredentials", map[string]any{
+		"provider": "azure",
+	})
 	var credResult clusterListCredentialsResult
 	if err := json.Unmarshal(credRaw, &credResult); err != nil {
 		t.Fatalf("decode credentials list: %v", err)
@@ -150,7 +182,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	// Task 5.4: Phase 2 - List templates and verify azure-standalone-cp-1-0-15 exists
 	t.Log("Phase 2: Listing templates...")
-	templRaw := client.CallTool(t, "k0rdent.clusterTemplates.list", map[string]any{
+	templRaw := client.CallTool(t, "k0rdent.mgmt.clusterTemplates.list", map[string]any{
 		"scope": "all",
 	})
 	var templResult clusterListTemplatesResult
@@ -206,7 +238,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 		},
 	}
 
-	deployRaw := client.CallTool(t, "k0rdent.cluster.deploy", deployArgs)
+	deployRaw := client.CallTool(t, "k0rdent.mgmt.clusterDeployments.deploy", deployArgs)
 	var deployResult clusterDeployResult
 	if err := json.Unmarshal(deployRaw, &deployResult); err != nil {
 		t.Fatalf("decode deploy result: %v", err)
@@ -333,6 +365,46 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 
 	t.Log("✓ ClusterDeployment is Ready")
 
+	// Verify enriched summary fields via list API
+	listRaw := client.CallTool(t, "k0rdent.mgmt.clusterDeployments.list", map[string]any{
+		"namespace": testNamespace,
+	})
+	var listResult clusterListResult
+	if err := json.Unmarshal(listRaw, &listResult); err != nil {
+		t.Fatalf("decode cluster list: %v", err)
+	}
+
+	var summary *clusterDeploymentSummary
+	for i := range listResult.Clusters {
+		if listResult.Clusters[i].Name == clusterName {
+			summary = &listResult.Clusters[i]
+			break
+		}
+	}
+	if summary == nil {
+		t.Fatalf("cluster %s not returned by list", clusterName)
+	}
+
+	if summary.TemplateRef.Name != "azure-standalone-cp-1-0-15" {
+		t.Fatalf("unexpected templateRef %+v", summary.TemplateRef)
+	}
+	if summary.CredentialRef.Name != "azure-cluster-credential" {
+		t.Fatalf("unexpected credentialRef %+v", summary.CredentialRef)
+	}
+	if summary.Region != "westus2" {
+		t.Fatalf("expected region westus2, got %s", summary.Region)
+	}
+	if !strings.EqualFold(summary.CloudProvider, "azure") {
+		t.Fatalf("expected cloudProvider azure, got %s", summary.CloudProvider)
+	}
+	if !summary.Ready || summary.Phase == "" {
+		t.Fatalf("expected ready summary with phase, got ready=%v phase=%s", summary.Ready, summary.Phase)
+	}
+	if len(summary.Conditions) == 0 {
+		t.Fatal("expected at least one condition in summary")
+	}
+	t.Logf("Cluster summary: %+v", summary)
+
 	// Task 5.7: Phase 5 - Delete test cluster via MCP (non-blocking)
 	t.Log("Phase 5: Deleting test cluster (no wait, just fire-and-forget)...")
 
@@ -342,7 +414,7 @@ func TestClustersProvisioningLifecycleLive(t *testing.T) {
 		"wait":      false,
 	}
 
-	deleteRaw := client.CallTool(t, "k0rdent.cluster.delete", deleteArgs)
+	deleteRaw := client.CallTool(t, "k0rdent.mgmt.clusterDeployments.delete", deleteArgs)
 	var deleteResult clusterDeleteResult
 	if err := json.Unmarshal(deleteRaw, &deleteResult); err != nil {
 		t.Fatalf("decode delete result: %v", err)
@@ -368,7 +440,9 @@ func TestClustersListCredentials(t *testing.T) {
 	client := newLiveClient(t)
 
 	t.Log("Listing all credentials...")
-	raw := client.CallTool(t, "k0rdent.providers.listCredentials", map[string]any{})
+	raw := client.CallTool(t, "k0rdent.mgmt.providers.listCredentials", map[string]any{
+		"provider": "azure",
+	})
 	var result clusterListCredentialsResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("decode credentials list: %v", err)
@@ -394,7 +468,7 @@ func TestClustersListTemplates(t *testing.T) {
 	client := newLiveClient(t)
 
 	t.Log("Listing all templates...")
-	raw := client.CallTool(t, "k0rdent.clusterTemplates.list", map[string]any{
+	raw := client.CallTool(t, "k0rdent.mgmt.clusterTemplates.list", map[string]any{
 		"scope": "all",
 	})
 	var result clusterListTemplatesResult
@@ -450,7 +524,7 @@ func cleanupClusterDeployment(t *testing.T, client *liveClient, dynamicClient dy
 		"deletionTimeout": "20m",
 	}
 
-	deleteRaw, err := client.CallToolSafe("k0rdent.cluster.delete", deleteArgs)
+	deleteRaw, err := client.CallToolSafe("k0rdent.mgmt.clusterDeployments.delete", deleteArgs)
 	if err != nil {
 		t.Logf("Warning: MCP delete failed for %s/%s: %v", namespace, name, err)
 		return

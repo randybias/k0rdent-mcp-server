@@ -125,7 +125,7 @@ func (m *GraphManager) Subscribe(ctx context.Context, req *mcp.SubscribeRequest)
 		return err
 	}
 
-	ctx, logger := toolContext(ctx, m.session, "k0rdent.graph.subscribe", "tool.graph")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.mgmt.graph.subscribe", "tool.graph")
 	logger = logger.With(
 		"uri", req.Params.URI,
 		"namespaces", mapKeys(filter.namespaces),
@@ -166,7 +166,7 @@ func (m *GraphManager) Unsubscribe(ctx context.Context, req *mcp.UnsubscribeRequ
 	if m == nil {
 		return fmt.Errorf("graph manager not configured")
 	}
-	ctx, logger := toolContext(ctx, m.session, "k0rdent.graph.unsubscribe", "tool.graph")
+	ctx, logger := toolContext(ctx, m.session, "k0rdent.mgmt.graph.unsubscribe", "tool.graph")
 	logger = logger.With("uri", req.Params.URI)
 	logger.Info("unsubscribing from graph stream")
 
@@ -683,11 +683,23 @@ func serviceTemplateNode(summary api.ServiceTemplateSummary) GraphNode {
 
 func clusterDeploymentNode(summary api.ClusterDeploymentSummary) GraphNode {
 	summaryMap := map[string]any{}
-	if summary.TemplateRef != "" {
-		summaryMap["template"] = summary.TemplateRef
+	if summary.TemplateRef.Name != "" {
+		summaryMap["template"] = summary.TemplateRef.Name
+		if summary.TemplateRef.Version != "" {
+			summaryMap["templateVersion"] = summary.TemplateRef.Version
+		}
 	}
-	if summary.CredentialRef != "" {
-		summaryMap["credential"] = summary.CredentialRef
+	if summary.CredentialRef.Name != "" {
+		summaryMap["credential"] = summary.CredentialRef.Name
+	}
+	if summary.CloudProvider != "" {
+		summaryMap["provider"] = summary.CloudProvider
+	}
+	if summary.Region != "" {
+		summaryMap["region"] = summary.Region
+	}
+	if summary.Phase != "" {
+		summaryMap["phase"] = summary.Phase
 	}
 	if len(summary.ServiceTemplates) > 0 {
 		summaryMap["serviceTemplates"] = summary.ServiceTemplates
@@ -743,11 +755,16 @@ func registerGraph(server *mcp.Server, session *runtime.Session, manager *GraphM
 
 	tool := &graphTool{manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.graph.snapshot",
+		Name:        "k0rdent.mgmt.graph.snapshot",
 		Description: "Return a graph snapshot of K0rdent resources",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "graph",
+			"action":   "snapshot",
+		},
 	}, tool.snapshot)
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
-		Name:        "k0rdent.graph",
+		Name:        "k0rdent.mgmt.graph",
 		Title:       "K0rdent graph stream",
 		Description: "Streaming graph deltas for K0rdent resources",
 		URITemplate: graphURITemplate,

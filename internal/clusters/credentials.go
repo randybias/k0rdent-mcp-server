@@ -3,6 +3,7 @@ package clusters
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/logging"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,6 +72,69 @@ func (m *Manager) ListCredentials(ctx context.Context, namespaces []string) ([]C
 	)
 
 	return summaries, nil
+}
+
+// ListIdentities aggregates ClusterIdentity references from credentials, showing which credentials reference each identity.
+func (m *Manager) ListIdentities(ctx context.Context, namespaces []string) ([]IdentitySummary, error) {
+	logger := logging.WithContext(ctx, m.logger)
+	logger.Debug("listing identity references", "namespace_count", len(namespaces))
+
+	if len(namespaces) == 0 {
+		logger.Warn("no namespaces provided for identity listing")
+		return []IdentitySummary{}, nil
+	}
+
+	identityMap := make(map[string]*IdentitySummary)
+
+	for _, ns := range namespaces {
+		logger.Debug("listing credentials for identity extraction", "namespace", ns)
+
+		list, err := m.dynamicClient.Resource(CredentialsGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			logger.Error("failed to list credentials while building identities", "namespace", ns, "error", err)
+			return nil, fmt.Errorf("list credentials in namespace %s: %w", ns, err)
+		}
+
+		for _, item := range list.Items {
+			name, identityNS, kind, ok := extractIdentityRef(&item)
+			if !ok {
+				continue
+			}
+
+			key := fmt.Sprintf("%s/%s", identityNS, name)
+			summary, exists := identityMap[key]
+			if !exists {
+				summary = &IdentitySummary{
+					Name:      name,
+					Namespace: identityNS,
+					Kind:      kind,
+					Provider:  normalizeProviderKind(kind),
+				}
+				identityMap[key] = summary
+			}
+			summary.Credentials = append(summary.Credentials, fmt.Sprintf("%s/%s", item.GetNamespace(), item.GetName()))
+		}
+	}
+
+	results := make([]IdentitySummary, 0, len(identityMap))
+	for _, summary := range identityMap {
+		sort.Strings(summary.Credentials)
+		results = append(results, *summary)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Namespace == results[j].Namespace {
+			return results[i].Name < results[j].Name
+		}
+		return results[i].Namespace < results[j].Namespace
+	})
+
+	logger.Info("cluster identities listed",
+		"count", len(results),
+		"namespace_count", len(namespaces),
+	)
+
+	return results, nil
 }
 
 // credentialToSummary extracts key fields from a Credential CR into a CredentialSummary.
@@ -143,4 +207,24 @@ func toLower(s string) string {
 		b[i] = c
 	}
 	return string(b)
+}
+
+func extractIdentityRef(obj *unstructured.Unstructured) (name, namespace, kind string, ok bool) {
+	ref, found, err := unstructured.NestedMap(obj.Object, "spec", "identityRef")
+	if err != nil || !found {
+		return "", "", "", false
+	}
+
+	name, _ = ref["name"].(string)
+	if name == "" {
+		return "", "", "", false
+	}
+
+	kind, _ = ref["kind"].(string)
+	namespace, _ = ref["namespace"].(string)
+	if namespace == "" {
+		namespace = obj.GetNamespace()
+	}
+
+	return name, namespace, kind, true
 }

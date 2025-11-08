@@ -15,9 +15,9 @@ func TestK0rdentCRDsLive(t *testing.T) {
     client := newLiveClient(t)
 
     tools := []string{
-        "k0rdent.k0rdent.serviceTemplates.list",
-        "k0rdent.k0rdent.clusterDeployments.list",
-        "k0rdent.k0rdent.multiClusterServices.list",
+        "k0rdent.mgmt.serviceTemplates.list",
+        "k0rdent.mgmt.clusterDeployments.listAll",
+        "k0rdent.mgmt.multiClusterServices.list",
     }
 
     for _, tool := range tools {

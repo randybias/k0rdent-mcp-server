@@ -31,8 +31,13 @@ type namespaceInfo struct {
 func registerNamespaces(server *mcp.Server, session *runtime.Session) error {
 	tool := &namespacesTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.namespaces.list",
+		Name:        "k0rdent.mgmt.namespaces.list",
 		Description: "List namespaces with their labels and phase status",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "namespaces",
+			"action":   "list",
+		},
 	}, tool.handle)
 	return nil
 }
