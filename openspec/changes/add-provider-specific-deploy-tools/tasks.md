@@ -93,6 +93,7 @@
 - [x] Remove `k0rdent.mgmt.clusterDeployments.deploy` tool registration
   - Kept generic tool per user feedback (early development, can remove later if not needed)
   - Both generic and provider-specific tools now coexist
+  - Labels field already exists as optional parameter (with `omitempty` tag) in all three provider tools
 
 - [x] Refactor validation logic
   - Created common constants for default values
@@ -346,3 +347,5 @@ Before marking this change complete:
 - MCP Go SDK automatically generates JSON Schema from Go struct tags
 - Existing validation logic is reused; no changes to validation rules needed
 - No breaking changes - all new tools are additive
+- Labels field is already present as optional parameter (with `omitempty` tag) in all three provider tools
+- MCP Go SDK does not support explicit default values in jsonschema tags, so agents must pass empty `{}` explicitly when omitting optional object parameters

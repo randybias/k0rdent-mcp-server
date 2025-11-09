@@ -53,6 +53,8 @@ For AWS deployments:
 
 ## Available Tools
 
+This section covers the core cluster provisioning tools. For AWS, Azure, and GCP deployments, consider using the provider-specific deployment tools documented in the [Provider-Specific Deployment Tools](#provider-specific-deployment-tools) section for simplified configuration and automatic template selection.
+
 ### k0rdent.mgmt.providers.list
 
 Returns the cloud providers supported by k0rdent credential onboarding (currently AWS, Azure, Google Cloud, and VMware vSphere). Use this tool to discover the `provider` value expected by `k0rdent.mgmt.providers.listCredentials`.
@@ -400,6 +402,325 @@ Creates or updates a `ClusterDeployment` resource to provision a child cluster.
 - **Field Owner**: Uses `mcp.clusters` as the field manager
 - **Validation**: Verifies template and credential exist before applying
 - **Config Flexibility**: Accepts any valid config structure for the template
+
+### Provider-Specific Deployment Tools
+
+The MCP server provides streamlined provider-specific deployment tools that automatically select the latest stable template for each cloud provider and expose provider-specific parameters directly in the tool schema. These tools are optimized for AI agent discovery and reduce configuration complexity compared to the generic deployment tool.
+
+#### When to Use Provider-Specific vs Generic Tools
+
+**Use Provider-Specific Tools When:**
+- You know the target cloud provider (AWS, Azure, or GCP)
+- You want automatic selection of the latest stable template
+- You want provider-specific parameter validation and guidance
+- You're building AI agents that need discoverable parameters
+
+**Use Generic Tool When:**
+- You need to specify an exact template version
+- You're using a custom or local template
+- You're working with providers other than AWS, Azure, or GCP
+- You need maximum flexibility in template selection
+
+#### k0rdent.provider.aws.clusterDeployments.deploy
+
+Deploys an AWS Kubernetes cluster with automatic template selection.
+
+**Key Features:**
+- Automatically selects the latest stable AWS template
+- AWS-specific parameter validation (region, instanceType)
+- Direct exposure of AWS parameters in tool schema
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| name | string | Yes | Cluster deployment name |
+| credential | string | Yes | AWS credential name |
+| region | string | Yes | AWS region (e.g., us-west-2, us-east-1) |
+| namespace | string | No | Target namespace (defaults per auth mode) |
+| labels | object | No | Additional labels (defaults to {}) |
+| controlPlane | object | Yes | Control plane configuration |
+| controlPlane.instanceType | string | Yes | EC2 instance type (e.g., t3.medium, m5.large) |
+| controlPlane.rootVolumeSize | integer | No | Root volume size in GB (default: 32) |
+| controlPlaneNumber | integer | No | Number of control plane nodes (default: 3) |
+| worker | object | Yes | Worker node configuration |
+| worker.instanceType | string | Yes | EC2 instance type (e.g., t3.large) |
+| worker.rootVolumeSize | integer | No | Root volume size in GB (default: 32) |
+| workersNumber | integer | No | Number of worker nodes (default: 2) |
+| wait | boolean | No | Wait for cluster ready before returning |
+| waitTimeout | string | No | Max wait time (default: 30m) |
+
+**Example:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.aws.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-aws-cluster",
+      "credential": "aws-cluster-credential",
+      "region": "us-west-2",
+      "controlPlane": {
+        "instanceType": "t3.medium",
+        "rootVolumeSize": 50
+      },
+      "controlPlaneNumber": 3,
+      "worker": {
+        "instanceType": "t3.large",
+        "rootVolumeSize": 100
+      },
+      "workersNumber": 5
+    }
+  }
+}
+```
+
+**Example with Labels:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.aws.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-aws-cluster",
+      "credential": "aws-cluster-credential",
+      "region": "us-west-2",
+      "labels": {
+        "environment": "production",
+        "team": "platform"
+      },
+      "controlPlane": {
+        "instanceType": "t3.medium"
+      },
+      "worker": {
+        "instanceType": "t3.large"
+      }
+    }
+  }
+}
+```
+
+**Template Auto-Selection:**
+
+The tool automatically selects the latest stable AWS template (pattern: `aws-standalone-cp-*`). This ensures you get the most recent version without manually tracking template versions.
+
+#### k0rdent.provider.azure.clusterDeployments.deploy
+
+Deploys an Azure Kubernetes cluster with automatic template selection.
+
+**Key Features:**
+- Automatically selects the latest stable Azure template
+- Azure-specific parameter validation (location, subscriptionID, vmSize)
+- Direct exposure of Azure parameters in tool schema
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| name | string | Yes | Cluster deployment name |
+| credential | string | Yes | Azure credential name |
+| location | string | Yes | Azure location (e.g., westus2, eastus) |
+| subscriptionID | string | Yes | Azure subscription ID (GUID) |
+| namespace | string | No | Target namespace (defaults per auth mode) |
+| labels | object | No | Additional labels (defaults to {}) |
+| controlPlane | object | Yes | Control plane configuration |
+| controlPlane.vmSize | string | Yes | Azure VM size (e.g., Standard_A4_v2, Standard_D2s_v3) |
+| controlPlane.rootVolumeSize | integer | No | Root volume size in GB (default: 30) |
+| controlPlaneNumber | integer | No | Number of control plane nodes (default: 3) |
+| worker | object | Yes | Worker node configuration |
+| worker.vmSize | string | Yes | Azure VM size (e.g., Standard_A4_v2) |
+| worker.rootVolumeSize | integer | No | Root volume size in GB (default: 30) |
+| workersNumber | integer | No | Number of worker nodes (default: 2) |
+| wait | boolean | No | Wait for cluster ready before returning |
+| waitTimeout | string | No | Max wait time (default: 30m) |
+
+**Example:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.azure.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-azure-cluster",
+      "credential": "azure-cluster-credential",
+      "location": "westus2",
+      "subscriptionID": "b90d4372-6e37-4eec-9e5a-fe3932d1a67c",
+      "controlPlane": {
+        "vmSize": "Standard_D4s_v3",
+        "rootVolumeSize": 50
+      },
+      "controlPlaneNumber": 3,
+      "worker": {
+        "vmSize": "Standard_D8s_v3",
+        "rootVolumeSize": 100
+      },
+      "workersNumber": 5
+    }
+  }
+}
+```
+
+**Example with Labels:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.azure.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-azure-cluster",
+      "credential": "azure-cluster-credential",
+      "location": "westus2",
+      "subscriptionID": "b90d4372-6e37-4eec-9e5a-fe3932d1a67c",
+      "labels": {
+        "environment": "production",
+        "team": "platform"
+      },
+      "controlPlane": {
+        "vmSize": "Standard_A4_v2"
+      },
+      "worker": {
+        "vmSize": "Standard_A4_v2"
+      }
+    }
+  }
+}
+```
+
+**Template Auto-Selection:**
+
+The tool automatically selects the latest stable Azure template (pattern: `azure-standalone-cp-*`). This ensures you get the most recent version without manually tracking template versions.
+
+#### k0rdent.provider.gcp.clusterDeployments.deploy
+
+Deploys a GCP Kubernetes cluster with automatic template selection.
+
+**Key Features:**
+- Automatically selects the latest stable GCP template
+- GCP-specific parameter validation (project, region, network.name, instanceType)
+- Direct exposure of GCP parameters in tool schema
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| name | string | Yes | Cluster deployment name |
+| credential | string | Yes | GCP credential name |
+| project | string | Yes | GCP project ID |
+| region | string | Yes | GCP region (e.g., us-central1, us-west1) |
+| network | object | Yes | VPC network configuration |
+| network.name | string | Yes | VPC network name (e.g., default) |
+| namespace | string | No | Target namespace (defaults per auth mode) |
+| labels | object | No | Additional labels (defaults to {}) |
+| controlPlane | object | Yes | Control plane configuration |
+| controlPlane.instanceType | string | Yes | GCE instance type (e.g., n1-standard-4, n2-standard-4) |
+| controlPlane.rootVolumeSize | integer | No | Root volume size in GB (default: 30) |
+| controlPlaneNumber | integer | No | Number of control plane nodes (default: 3) |
+| worker | object | Yes | Worker node configuration |
+| worker.instanceType | string | Yes | GCE instance type (e.g., n1-standard-4) |
+| worker.rootVolumeSize | integer | No | Root volume size in GB (default: 30) |
+| workersNumber | integer | No | Number of worker nodes (default: 2) |
+| wait | boolean | No | Wait for cluster ready before returning |
+| waitTimeout | string | No | Max wait time (default: 30m) |
+
+**Example:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.gcp.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-gcp-cluster",
+      "credential": "gcp-credential",
+      "project": "my-gcp-project-123456",
+      "region": "us-central1",
+      "network": {
+        "name": "default"
+      },
+      "controlPlane": {
+        "instanceType": "n1-standard-4",
+        "rootVolumeSize": 50
+      },
+      "controlPlaneNumber": 3,
+      "worker": {
+        "instanceType": "n1-standard-8",
+        "rootVolumeSize": 100
+      },
+      "workersNumber": 5
+    }
+  }
+}
+```
+
+**Example with Labels:**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.gcp.clusterDeployments.deploy",
+    "arguments": {
+      "name": "my-gcp-cluster",
+      "credential": "gcp-credential",
+      "project": "my-gcp-project-123456",
+      "region": "us-central1",
+      "network": {
+        "name": "default"
+      },
+      "labels": {
+        "environment": "production",
+        "team": "platform"
+      },
+      "controlPlane": {
+        "instanceType": "n1-standard-4"
+      },
+      "worker": {
+        "instanceType": "n1-standard-4"
+      }
+    }
+  }
+}
+```
+
+**Template Auto-Selection:**
+
+The tool automatically selects the latest stable GCP template (pattern: `gcp-standalone-cp-*`). This ensures you get the most recent version without manually tracking template versions.
+
+#### Provider Tool Benefits for AI Agents
+
+These provider-specific tools are designed for optimal AI agent discoverability:
+
+1. **Explicit Parameters**: All provider-specific parameters appear directly in the tool schema, making them visible during tool introspection
+2. **Built-in Validation**: Parameter types and requirements are enforced at the tool level
+3. **Automatic Template Selection**: No need to track template versions or query template lists
+4. **Consistent Patterns**: All three tools follow the same structural pattern, making them easy to learn
+5. **Optional Labels**: The `labels` parameter is optional and defaults to an empty object `{}`, simplifying basic deployments
+
+**AI Agent Usage Pattern:**
+
+```python
+# Agent discovers tools via MCP introspection
+tools = mcp_client.list_tools()
+aws_deploy_tool = next(t for t in tools if t.name == "k0rdent.provider.aws.clusterDeployments.deploy")
+
+# Agent sees all parameters in tool schema
+print(aws_deploy_tool.parameters)
+# Shows: name, credential, region, controlPlane, worker, labels, etc.
+
+# Agent constructs call with required parameters
+result = mcp_client.call_tool("k0rdent.provider.aws.clusterDeployments.deploy", {
+    "name": "ai-managed-cluster",
+    "credential": "aws-cluster-credential",
+    "region": "us-west-2",
+    "controlPlane": {"instanceType": "t3.medium"},
+    "worker": {"instanceType": "t3.large"}
+    # labels omitted - defaults to {}
+})
+```
 
 ### k0rdent.mgmt.clusterDeployments.delete
 
@@ -874,6 +1195,41 @@ Approximate hourly costs for baseline configuration (westus2):
 ```
 
 4. **Deploy New Cluster**
+
+You can use either the generic tool (requires explicit template) or a provider-specific tool (automatic template selection).
+
+**Option A: Provider-Specific Tool (Recommended for AWS/Azure/GCP)**
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.provider.azure.clusterDeployments.deploy",
+    "arguments": {
+      "name": "production-cluster-01",
+      "credential": "azure-cluster-credential",
+      "location": "westus2",
+      "subscriptionID": "b90d4372-6e37-4eec-9e5a-fe3932d1a67c",
+      "labels": {
+        "environment": "production",
+        "project": "platform"
+      },
+      "controlPlane": {
+        "vmSize": "Standard_D4s_v3",
+        "rootVolumeSize": 50
+      },
+      "controlPlaneNumber": 3,
+      "worker": {
+        "vmSize": "Standard_D8s_v3",
+        "rootVolumeSize": 100
+      },
+      "workersNumber": 5
+    }
+  }
+}
+```
+
+**Option B: Generic Tool (for specific template versions or other providers)**
 
 ```json
 {
