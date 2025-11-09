@@ -1,0 +1,17 @@
+- [ ] T1 Add golang.org/x/time/rate dependency for token bucket limiter
+- [ ] T2 Create internal/ratelimit package with IP-based limiter
+- [ ] T3 Add rate limit configuration (RATE_LIMIT_REQUESTS_PER_SECOND, RATE_LIMIT_BURST)
+- [ ] T4 Add HTTP middleware for per-IP rate limiting in server/app.go
+- [ ] T5 Add subscription quota tracking to runtime.Session
+- [ ] T6 Add MAX_SUBSCRIPTIONS_PER_SESSION configuration (default: 50)
+- [ ] T7 Enforce subscription limits in SubscriptionRouter
+- [ ] T8 Return appropriate error codes (HTTP 429, MCP error)
+- [ ] T9 Add Retry-After header to 429 responses
+- [ ] T10 Add Prometheus metrics (rate_limit_hits_total counter)
+- [ ] T11 Add unit tests for rate limiter logic
+- [ ] T12 Add integration test for HTTP rate limiting
+- [ ] T13 Add integration test for subscription quotas
+- [ ] T14 Add load test verifying enforcement under concurrent requests
+- [ ] T15 Document rate limits in README.md
+- [ ] T16 Add rate limit tuning guide in docs/
+- [ ] T17 Validate with `openspec validate add-rate-limiting --strict`

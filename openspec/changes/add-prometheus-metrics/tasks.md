@@ -1,0 +1,18 @@
+- [ ] T1 Add prometheus/client_golang and promhttp dependencies
+- [ ] T2 Create internal/metrics package with registry and collectors
+- [ ] T3 Add METRICS_ENABLED config flag (default: false)
+- [ ] T4 Add /metrics HTTP endpoint in server/app.go (conditional on METRICS_ENABLED)
+- [ ] T5 Define subscription metrics (active_subscriptions gauge, total_subscriptions counter)
+- [ ] T6 Define watcher metrics (watcher_restarts counter, watcher_errors counter)
+- [ ] T7 Define notification metrics (notifications_sent counter, notification_errors counter)
+- [ ] T8 Define API call metrics (api_requests histogram with method/status labels)
+- [ ] T9 Register standard Go runtime metrics (memory, goroutines, GC)
+- [ ] T10 Instrument SubscriptionRouter with subscription metrics
+- [ ] T11 Instrument GraphManager/EventManager/PodLogManager with watcher metrics
+- [ ] T12 Instrument notification sending with notification metrics
+- [ ] T13 Instrument Kubernetes client calls with API call metrics
+- [ ] T14 Add unit tests verifying metric increments
+- [ ] T15 Add integration test fetching /metrics endpoint
+- [ ] T16 Document metrics in README.md with example PromQL queries
+- [ ] T17 Add example Grafana dashboard JSON in docs/
+- [ ] T18 Validate with `openspec validate add-prometheus-metrics --strict`

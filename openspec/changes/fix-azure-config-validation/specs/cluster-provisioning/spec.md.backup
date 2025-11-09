@@ -1,0 +1,326 @@
+# Capability: Cluster Provisioning Configuration Validation
+
+## ADDED Requirements
+
+### Requirement: Azure cluster deployments must validate required configuration fields before submission
+
+The MCP server SHALL validate Azure cluster deployment configurations to ensure required fields are present before creating ClusterDeployment resources. This validation prevents late failures during cloud resource provisioning and provides immediate, actionable feedback to users.
+
+**Rationale:**
+- Azure deployments fail 5-10 minutes into provisioning if required fields are missing
+- Early validation saves time and reduces cloud costs from failed provisioning attempts
+- Clear error messages improve user experience
+
+**Scope:**
+- Applies to all ClusterTemplates with names matching pattern `azure-*`
+- Validates configuration structure before Kubernetes resource creation
+- Does not replace Kubernetes admission control or Azure API validation
+
+#### Scenario: Deploy Azure cluster with missing subscriptionID
+
+**Given** a user attempts to deploy an Azure cluster
+**And** the configuration is missing the `subscriptionID` field
+**When** the `k0rdent.mgmt.clusterDeployments.deploy` tool is called
+**Then** the deployment SHALL be rejected with a validation error
+**And** the error message SHALL indicate that `config.subscriptionID` is required
+**And** the error message SHALL include an example of valid configuration
+**And** the error message SHALL reference the Azure documentation URL
+
+**Example request (invalid):**
+```json
+{
+  "name": "test-cluster",
+  "template": "azure-standalone-cp-1-0-15",
+  "credential": "azure-cluster-credential",
+  "config": {
+    "location": "westus2",
+    "clusterIdentity": {"name": "azure-cluster-identity", "namespace": "kcm-system"}
+  }
+}
+```
+
+**Example error response:**
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "invalid configuration for Azure cluster:\n  - config.subscriptionID: required field missing (Azure subscription ID required)\n\nExample valid configuration:\n{\n  \"location\": \"westus2\",\n  \"subscriptionID\": \"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx\",\n  ...\n}\n\nSee: https://docs.k0rdent.io/latest/admin/installation/prepare-mgmt-cluster/azure/"
+  }
+}
+```
+
+#### Scenario: Deploy Azure cluster with missing location
+
+**Given** a user attempts to deploy an Azure cluster
+**And** the configuration is missing the `location` field
+**When** the `k0rdent.mgmt.clusterDeployments.deploy` tool is called
+**Then** the deployment SHALL be rejected with a validation error
+**And** the error message SHALL indicate that `config.location` is required
+**And** no ClusterDeployment resource SHALL be created
+
+#### Scenario: Deploy Azure cluster with all required fields
+
+**Given** a user attempts to deploy an Azure cluster
+**And** the configuration includes both `location` and `subscriptionID` fields
+**And** both fields contain non-empty string values
+**When** the `k0rdent.mgmt.clusterDeployments.deploy` tool is called
+**Then** the validation SHALL pass
+**And** the ClusterDeployment resource SHALL be created
+**And** no validation errors SHALL be returned
+
+**Example request (valid):**
+```json
+{
+  "name": "test-cluster",
+  "template": "azure-standalone-cp-1-0-15",
+  "credential": "azure-cluster-credential",
+  "config": {
+    "location": "westus2",
+    "subscriptionID": "b90d4372-6e37-4eec-9e5a-fe3932d1a67c",
+    "clusterIdentity": {"name": "azure-cluster-identity", "namespace": "kcm-system"},
+    "controlPlane": {"vmSize": "Standard_A4_v2", "rootVolumeSize": 32},
+    "worker": {"vmSize": "Standard_A4_v2", "rootVolumeSize": 32}
+  }
+}
+```
+
+#### Scenario: Deploy non-Azure cluster without validation
+
+**Given** a user attempts to deploy a non-Azure cluster (e.g., AWS, GCP, vSphere)
+**And** the template name does NOT match the pattern `azure-*`
+**When** the `k0rdent.mgmt.clusterDeployments.deploy` tool is called
+**Then** Azure-specific validation SHALL NOT be performed
+**And** the deployment SHALL proceed with existing validation only
+**And** backward compatibility SHALL be maintained
+
+**Example:**
+- Template `aws-standalone-cp-0-0-3` → no Azure validation
+- Template `gcp-hosted-cp-1-0-15` → no Azure validation
+- Template `azure-standalone-cp-1-0-15` → Azure validation applied
+
+### Requirement: Azure deployments SHALL warn about incorrect field naming
+
+The MCP server SHALL detect when Azure cluster configurations use AWS naming conventions (e.g., `instanceType` instead of `vmSize`) and emit warnings to guide users toward correct field names.
+
+**Rationale:**
+- Users may confuse Azure and AWS configuration syntax
+- `instanceType` is AWS terminology; Azure uses `vmSize`
+- Warnings inform users without blocking deployment (non-fatal)
+
+**Scope:**
+- Applies to `controlPlane` and `worker` configuration sections
+- Warnings are logged but do not prevent deployment
+- Users may ignore warnings if intentional
+
+#### Scenario: Deploy Azure cluster using AWS field naming
+
+**Given** a user attempts to deploy an Azure cluster
+**And** the configuration uses `instanceType` in controlPlane or worker sections
+**When** the `k0rdent.mgmt.clusterDeployments.deploy` tool is called
+**Then** the deployment SHALL emit a warning log entry
+**And** the warning SHALL suggest using `vmSize` instead of `instanceType`
+**And** the deployment SHALL NOT be blocked by the warning
+**And** the ClusterDeployment resource SHALL still be created
+
+**Example configuration with warning:**
+```json
+{
+  "config": {
+    "location": "westus2",
+    "subscriptionID": "b90d4372-6e37-4eec-9e5a-fe3932d1a67c",
+    "controlPlane": {
+      "instanceType": "Standard_A4_v2"  // Triggers warning
+    },
+    "worker": {
+      "instanceType": "Standard_A4_v2"  // Triggers warning
+    }
+  }
+}
+```
+
+**Example warning (log entry):**
+```
+WARN configuration warning field=config.controlPlane.instanceType
+     message="Azure uses 'vmSize' instead of 'instanceType'"
+```
+
+### Requirement: Validation errors must be clear and actionable
+
+Validation error messages SHALL provide sufficient context for users to understand what went wrong and how to fix their configuration.
+
+**Rationale:**
+- Generic error messages lead to confusion and support burden
+- Users need to know exactly which fields are missing or incorrect
+- Documentation references accelerate problem resolution
+
+**Scope:**
+- All validation errors from configuration validation
+- Applies to all MCP tool error responses
+
+#### Scenario: Validation error includes field path
+
+**Given** an Azure cluster deployment fails validation
+**When** a validation error is returned
+**Then** the error message SHALL include the JSON path to the problematic field
+**And** the path SHALL use dot notation (e.g., `config.subscriptionID`)
+**And** the path SHALL be accurate and match the request structure
+
+#### Scenario: Validation error includes example configuration
+
+**Given** an Azure cluster deployment fails validation
+**When** a validation error is returned
+**Then** the error message SHALL include an example of valid configuration
+**And** the example SHALL demonstrate the correct structure
+**And** the example SHALL use placeholder values (not real credentials)
+
+#### Scenario: Validation error includes documentation link
+
+**Given** an Azure cluster deployment fails validation
+**When** a validation error is returned
+**Then** the error message SHALL include a URL to the Azure deployment documentation
+**And** the URL SHALL point to the official k0rdent Azure setup guide
+**And** the link SHALL be `https://docs.k0rdent.io/latest/admin/installation/prepare-mgmt-cluster/azure/`
+
+## MODIFIED Requirements
+
+### Requirement: ClusterDeployment creation SHALL validate configuration before submission
+
+The `DeployCluster` function **SHALL** validate provider-specific configuration requirements based on the ClusterTemplate name pattern before creating ClusterDeployment resources.
+
+**Previous behavior:**
+- The function validated only basic request fields (name, template, credential)
+- Provider-specific configuration was not validated
+- Invalid configurations were accepted and failed during cloud provisioning
+
+**Changes:**
+- **ADD**: Template pattern detection (e.g., `azure-*`, future: `aws-*`, `gcp-*`)
+- **ADD**: Provider-specific validation dispatch based on template name
+- **ADD**: Configuration field validation for Azure templates
+- **MAINTAIN**: Existing validation for name, template, credential remains unchanged
+
+#### Scenario: Validation occurs before ClusterDeployment creation
+
+**Given** a user calls `k0rdent.mgmt.clusterDeployments.deploy`
+**And** the template matches an Azure pattern
+**When** the configuration is invalid
+**Then** validation SHALL fail before any Kubernetes API calls
+**And** no ClusterDeployment resource SHALL be created
+**And** no Kubernetes resources SHALL be modified
+**And** an error SHALL be returned to the caller immediately
+
+#### Scenario: Validation preserves backward compatibility
+
+**Given** a user deploys a cluster with a valid configuration
+**And** the configuration was valid before this change
+**When** the deployment is submitted
+**Then** the deployment SHALL succeed without changes
+**And** all existing valid configurations SHALL continue to work
+**And** no additional fields SHALL be required beyond documentation requirements
+
+## Implementation Notes
+
+### Validation Timing
+
+Validation occurs in this order:
+1. Basic request validation (name, template, credential) - **existing**
+2. Template reference resolution - **existing**
+3. **Provider-specific configuration validation - NEW**
+4. Credential reference resolution - **existing**
+5. ClusterDeployment manifest construction - **existing**
+6. Server-side apply to Kubernetes - **existing**
+
+### Template Pattern Matching
+
+Azure templates are detected using prefix matching:
+```go
+func isAzureTemplate(templateName string) bool {
+    return strings.HasPrefix(templateName, "azure-")
+}
+```
+
+This approach:
+- Matches all official Azure templates (`azure-standalone-cp-*`, `azure-hosted-cp-*`, `azure-aks-*`)
+- Encourages consistent naming for custom Azure templates
+- Is simple and performant (no regex, no API calls)
+
+### Error Response Format
+
+Validation errors use MCP error code `-32602` (Invalid params):
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "invalid configuration for Azure cluster:\n  - config.subscriptionID: required field missing\n  - config.location: required field missing\n\n..."
+  }
+}
+```
+
+### Future Extensibility
+
+This design supports future enhancements:
+- **AWS validation**: Add `ValidateAWSConfig()` and `isAWSTemplate()`
+- **GCP validation**: Add `ValidateGCPConfig()` and `isGCPTemplate()`
+- **Schema-based validation**: Parse ClusterTemplate `spec.schema` for dynamic rules
+- **Cross-resource validation**: Verify clusterIdentity or credential existence
+
+No changes to Azure validation required for future additions.
+
+## Testing Requirements
+
+### Unit Tests
+
+- `TestValidateAzureConfig` - Test validation logic in isolation
+  - Valid config passes
+  - Missing subscriptionID fails
+  - Missing location fails
+  - Empty strings treated as missing
+  - instanceType generates warning
+  - Non-Azure templates skip validation
+
+### Integration Tests
+
+- `TestDeployClusterAzureValidation` - Test end-to-end validation
+  - Deploy rejects invalid config
+  - Deploy accepts valid config
+  - Error messages are correct
+  - No ClusterDeployment created on validation failure
+
+### Live Tests
+
+- `TestClustersProvisioningLifecycleLive` - Test with real k0rdent cluster
+  - Valid Azure config deploys successfully
+  - Invalid config rejected immediately
+  - Error message format verified
+
+## Documentation Requirements
+
+### Updates Required
+
+1. **docs/cluster-provisioning.md**
+   - Add "Configuration Validation" section
+   - Document required fields for Azure
+   - Show validation error examples
+   - Update Azure baseline configuration
+
+2. **Error Handling Documentation**
+   - Add validation error to common errors
+   - Provide troubleshooting steps
+   - Link to Azure documentation
+
+3. **Code Comments**
+   - Document validation logic
+   - Explain template pattern matching
+   - Note future extensibility points
+
+## Related Changes
+
+- **Future**: Schema-based validation for all providers
+- **Future**: AWS, GCP, vSphere configuration validation
+- **Future**: Cross-resource validation (verify references exist)
+
+## References
+
+- [k0rdent Azure Documentation](https://docs.k0rdent.io/latest/admin/installation/prepare-mgmt-cluster/azure/)
+- Current implementation: `internal/clusters/deploy.go`
+- Live tests: `test/integration/clusters_live_test.go`
+- Cluster provisioning docs: `docs/cluster-provisioning.md`

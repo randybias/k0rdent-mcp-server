@@ -1,0 +1,12 @@
+- [ ] T1 Update config.go resolveAuthMode() to default to OIDC_REQUIRED
+- [ ] T2 Add validation that fails startup when auth requirements not met
+- [ ] T3 Add prominent WARNING log on startup when DEV_ALLOW_ANY is active
+- [ ] T4 Update config_test.go to verify secure default
+- [ ] T5 Add test case for explicit DEV_ALLOW_ANY configuration
+- [ ] T6 Update README.md with explicit AUTH_MODE examples
+- [ ] T7 Create MIGRATION.md guide for v1.x users
+- [ ] T8 Update deployment examples (Kubernetes manifests, docker-compose)
+- [ ] T9 Update openspec/project.md security section
+- [ ] T10 Add integration test verifying auth enforcement
+- [ ] T11 Run full test suite to verify no regressions
+- [ ] T12 Validate with `openspec validate secure-auth-mode-default --strict`

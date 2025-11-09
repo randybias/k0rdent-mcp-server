@@ -1,0 +1,14 @@
+- [ ] T1 Add NamespaceFilter accessor to runtime.Session
+- [ ] T2 Update ListServiceTemplates to filter namespaces before List calls
+- [ ] T3 Update ListClusterDeployments to filter namespaces
+- [ ] T4 Update ListMultiClusterServices to filter namespaces
+- [ ] T5 Update GraphManager watchers to filter namespaces
+- [ ] T6 Update EventManager watchers to filter namespaces
+- [ ] T7 Update PodLogManager to filter namespaces
+- [ ] T8 Add helper function for listing matching namespaces
+- [ ] T9 Add unit tests for namespace filtering logic
+- [ ] T10 Add integration test with filter configured
+- [ ] T11 Verify filter reduces watch count (manual test)
+- [ ] T12 Update README.md documenting filter behavior
+- [ ] T13 Add filter limitations to documentation (regex syntax, performance)
+- [ ] T14 Validate with `openspec validate enforce-namespace-filter --strict`

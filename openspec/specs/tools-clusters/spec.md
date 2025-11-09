@@ -1,5 +1,8 @@
-## MODIFIED Requirements
+# tools-clusters Specification
 
+## Purpose
+TBD - created by archiving change update-cluster-list-details. Update Purpose after archive.
+## Requirements
 ### Requirement: Cluster deployment summaries include full context
 - `k0rdent.mgmt.clusterDeployments.list` **SHALL** return `ClusterDeploymentSummary` objects that include:
   - metadata: `name`, `namespace`, `labels`, `age`
@@ -23,3 +26,4 @@
 #### Scenario: Live test assertion
 - WHEN the live test lists clusters after creating one
 - THEN it verifies `templateRef.name` and `credentialRef.name` are populated in the response.
+
