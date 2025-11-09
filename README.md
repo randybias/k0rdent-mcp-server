@@ -5,6 +5,7 @@ The k0rdent MCP server exposes management-plane tooling over the Model Context P
 ## Features
 - **Cluster Deployment Monitoring** – Subscribe to `k0rdent://cluster-monitor/{namespace}/{name}` to follow provisioning progress with filtered, high-signal updates. See [docs/features/cluster-monitoring.md](docs/features/cluster-monitoring.md).
 - **Cluster Provisioning Tools** – List templates/credentials and launch or delete ClusterDeployments programmatically.
+- **Service Attachments** – Attach installed ServiceTemplates to running clusters with `k0rdent.mgmt.clusterDeployments.services.apply`, including dry-run previews before mutating production clusters. See [docs/cluster-provisioning.md](docs/cluster-provisioning.md#k0rdentmgmtclusterdeploymentsservicesapply).
 - **Namespace Event Streaming** – Follow live Kubernetes events via `k0rdent://events/{namespace}`.
 - **Pod Log Streaming** – Tail application logs with `k0rdent://podlogs/{namespace}/{pod}/{container}`.
 - **Catalog Access** – Browse and install catalog entries exposed by the k0rdent control plane.

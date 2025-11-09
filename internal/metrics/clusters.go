@@ -16,21 +16,25 @@ type ClusterMetrics struct {
 	listTemplatesTotal   map[string]int64 // outcome -> count
 	deployTotal          map[string]int64 // outcome -> count
 	deleteTotal          map[string]int64 // outcome -> count
+	serviceApplyTotal    map[string]int64 // outcome -> count
 
 	// Duration tracking (simplified until Prometheus histograms are added)
-	deployDurations []time.Duration
-	deleteDurations []time.Duration
+	deployDurations       []time.Duration
+	deleteDurations       []time.Duration
+	serviceApplyDurations []time.Duration
 }
 
 // NewClusterMetrics creates a new metrics tracker for cluster operations.
 func NewClusterMetrics() *ClusterMetrics {
 	return &ClusterMetrics{
-		listCredentialsTotal: make(map[string]int64),
-		listTemplatesTotal:   make(map[string]int64),
-		deployTotal:          make(map[string]int64),
-		deleteTotal:          make(map[string]int64),
-		deployDurations:      make([]time.Duration, 0),
-		deleteDurations:      make([]time.Duration, 0),
+		listCredentialsTotal:  make(map[string]int64),
+		listTemplatesTotal:    make(map[string]int64),
+		deployTotal:           make(map[string]int64),
+		deleteTotal:           make(map[string]int64),
+		serviceApplyTotal:     make(map[string]int64),
+		deployDurations:       make([]time.Duration, 0),
+		deleteDurations:       make([]time.Duration, 0),
+		serviceApplyDurations: make([]time.Duration, 0),
 	}
 }
 
@@ -62,6 +66,14 @@ func (m *ClusterMetrics) RecordDelete(outcome string, duration time.Duration) {
 	defer m.mu.Unlock()
 	m.deleteTotal[outcome]++
 	m.deleteDurations = append(m.deleteDurations, duration)
+}
+
+// RecordServiceApply records a service apply operation on a ClusterDeployment.
+func (m *ClusterMetrics) RecordServiceApply(outcome string, duration time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.serviceApplyTotal[outcome]++
+	m.serviceApplyDurations = append(m.serviceApplyDurations, duration)
 }
 
 // GetListCredentialsTotal returns the total count for list credentials operations.

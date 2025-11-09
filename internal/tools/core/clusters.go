@@ -9,20 +9,25 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/yaml"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/clusters"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/k0rdent/api"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/metrics"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
 // Common defaults for cluster deployments
 const (
-	defaultControlPlaneNumber = 3
-	defaultWorkersNumber      = 2
-	defaultAWSRootVolumeSize  = 32
+	defaultControlPlaneNumber  = 3
+	defaultWorkersNumber       = 2
+	defaultAWSRootVolumeSize   = 32
 	defaultAzureRootVolumeSize = 30
-	defaultGCPRootVolumeSize  = 30
+	defaultGCPRootVolumeSize   = 30
 )
 
 // validateAndDefaultNodeCounts validates and applies defaults to control plane and worker counts
@@ -118,6 +123,54 @@ type clustersListResult struct {
 	Clusters []clusters.ClusterDeploymentSummary `json:"clusters"`
 }
 
+type clusterServiceApplyTool struct {
+	session *runtime.Session
+}
+
+type clusterServiceApplyInput struct {
+	ClusterNamespace  string                   `json:"clusterNamespace"`
+	ClusterName       string                   `json:"clusterName"`
+	TemplateNamespace string                   `json:"templateNamespace"`
+	TemplateName      string                   `json:"templateName"`
+	ServiceName       string                   `json:"serviceName,omitempty"`
+	ServiceNamespace  string                   `json:"serviceNamespace,omitempty"`
+	Values            map[string]any           `json:"values,omitempty"`
+	ValuesFrom        []serviceValuesFromInput `json:"valuesFrom,omitempty"`
+	HelmOptions       *serviceHelmOptionsInput `json:"helmOptions,omitempty"`
+	DependsOn         []string                 `json:"dependsOn,omitempty"`
+	Priority          *int64                   `json:"priority,omitempty"`
+	ProviderConfig    map[string]any           `json:"providerConfig,omitempty"`
+	DryRun            bool                     `json:"dryRun,omitempty"`
+}
+
+type serviceValuesFromInput struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Key      string `json:"key"`
+	Optional *bool  `json:"optional,omitempty"`
+}
+
+type serviceHelmOptionsInput struct {
+	Atomic        *bool  `json:"atomic,omitempty"`
+	Wait          *bool  `json:"wait,omitempty"`
+	Timeout       string `json:"timeout,omitempty"`
+	CleanupOnFail *bool  `json:"cleanupOnFail,omitempty"`
+	Description   string `json:"description,omitempty"`
+	DisableHooks  *bool  `json:"disableHooks,omitempty"`
+	Replace       *bool  `json:"replace,omitempty"`
+	SkipCRDs      *bool  `json:"skipCRDs,omitempty"`
+	MaxHistory    *int64 `json:"maxHistory,omitempty"`
+}
+
+type clusterServiceApplyResult struct {
+	Service          map[string]any   `json:"service"`
+	Status           map[string]any   `json:"status,omitempty"`
+	UpgradePaths     []map[string]any `json:"upgradePaths,omitempty"`
+	ClusterName      string           `json:"clusterName"`
+	ClusterNamespace string           `json:"clusterNamespace"`
+	DryRun           bool             `json:"dryRun"`
+}
+
 var defaultProviderSummaries = []clusters.ProviderSummary{
 	{Name: "aws", Title: "Amazon Web Services"},
 	{Name: "azure", Title: "Microsoft Azure"},
@@ -185,6 +238,18 @@ func registerClusters(server *mcp.Server, session *runtime.Session) error {
 			"action":   "list",
 		},
 	}, listClustersTool.list)
+
+	// Register k0rdent.mgmt.clusterDeployments.services.apply
+	serviceApplyTool := &clusterServiceApplyTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.mgmt.clusterDeployments.services.apply",
+		Description: "Attach or update a ServiceTemplate entry on a running ClusterDeployment using server-side apply. Supports dry-run previews and returns the service status snapshot.",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterDeployments",
+			"action":   "services.apply",
+		},
+	}, serviceApplyTool.apply)
 
 	// Register provider-specific cluster deployment tools
 
@@ -391,7 +456,6 @@ func (t *clustersListTemplatesTool) list(ctx context.Context, req *mcp.CallToolR
 	return nil, clustersListTemplatesResult{Templates: templates}, nil
 }
 
-
 func (t *clustersDeleteTool) delete(ctx context.Context, req *mcp.CallToolRequest, input clustersDeleteInput) (*mcp.CallToolResult, clustersDeleteResult, error) {
 	name := toolName(req)
 	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
@@ -539,6 +603,429 @@ func (t *clustersListTool) list(ctx context.Context, req *mcp.CallToolRequest, i
 	)
 
 	return nil, clustersListResult{Clusters: clusters}, nil
+}
+
+func (t *clusterServiceApplyTool) apply(ctx context.Context, req *mcp.CallToolRequest, input clusterServiceApplyInput) (*mcp.CallToolResult, clusterServiceApplyResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
+	start := time.Now()
+	outcome := metrics.OutcomeSuccess
+	defer func() {
+		if t.session != nil && t.session.ClusterMetrics != nil {
+			t.session.ClusterMetrics.RecordServiceApply(outcome, time.Since(start))
+		}
+	}()
+
+	clusterNamespace := strings.TrimSpace(input.ClusterNamespace)
+	clusterName := strings.TrimSpace(input.ClusterName)
+	templateNamespace := strings.TrimSpace(input.TemplateNamespace)
+	templateName := strings.TrimSpace(input.TemplateName)
+	serviceNamespace := strings.TrimSpace(input.ServiceNamespace)
+	serviceName := strings.TrimSpace(input.ServiceName)
+	if templateNamespace == "" {
+		templateNamespace = t.session.GlobalNamespace()
+	}
+
+	if clusterNamespace == "" {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("clusterNamespace is required")
+	}
+	if clusterName == "" {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("clusterName is required")
+	}
+	if templateName == "" {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("templateName is required")
+	}
+	if serviceName == "" {
+		serviceName = templateName
+	}
+	if serviceName == "" {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("serviceName could not be derived")
+	}
+	if err := t.ensureNamespaceAllowed("clusterNamespace", clusterNamespace); err != nil {
+		outcome = metrics.OutcomeForbidden
+		return nil, clusterServiceApplyResult{}, err
+	}
+	if err := t.ensureNamespaceAllowed("templateNamespace", templateNamespace); err != nil {
+		outcome = metrics.OutcomeForbidden
+		return nil, clusterServiceApplyResult{}, err
+	}
+	if serviceNamespace != "" {
+		if err := t.ensureNamespaceAllowed("serviceNamespace", serviceNamespace); err != nil {
+			outcome = metrics.OutcomeForbidden
+			return nil, clusterServiceApplyResult{}, err
+		}
+	}
+
+	logger.Debug("applying cluster service",
+		"tool", name,
+		"cluster_namespace", clusterNamespace,
+		"cluster_name", clusterName,
+		"template", fmt.Sprintf("%s/%s", templateNamespace, templateName),
+		"service_name", serviceName,
+		"service_namespace", serviceNamespace,
+		"dry_run", input.DryRun,
+	)
+
+	if input.Priority != nil && *input.Priority < 0 {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("priority must be zero or positive")
+	}
+
+	client := t.session.Clients.Dynamic
+
+	clusterObj, err := client.
+		Resource(api.ClusterDeploymentGVR()).
+		Namespace(clusterNamespace).
+		Get(ctx, clusterName, metav1.GetOptions{})
+	if err != nil {
+		outcome = classifyMetricsOutcome(err)
+		logger.Error("failed to fetch cluster deployment", "tool", name, "error", err)
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("get cluster deployment: %w", err)
+	}
+
+	existingServices := collectServiceNames(clusterObj)
+
+	var dependsOnPtr *[]string
+	if len(input.DependsOn) > 0 {
+		deps := make([]string, len(input.DependsOn))
+		var missing []string
+		for i, raw := range input.DependsOn {
+			dep := strings.TrimSpace(raw)
+			if dep == "" {
+				outcome = metrics.OutcomeError
+				return nil, clusterServiceApplyResult{}, fmt.Errorf("dependsOn[%d] must not be empty", i)
+			}
+			if dep == serviceName {
+				outcome = metrics.OutcomeError
+				return nil, clusterServiceApplyResult{}, fmt.Errorf("dependsOn cannot reference the target service (%s)", serviceName)
+			}
+			if _, ok := existingServices[dep]; !ok {
+				missing = append(missing, dep)
+			}
+			deps[i] = dep
+		}
+		if len(missing) > 0 {
+			outcome = metrics.OutcomeError
+			return nil, clusterServiceApplyResult{}, fmt.Errorf("dependsOn references unknown services: %s", strings.Join(missing, ", "))
+		}
+		depsCopy := deps
+		dependsOnPtr = &depsCopy
+	}
+
+	var valuesFromPtr *[]api.ClusterServiceValuesFrom
+	if len(input.ValuesFrom) > 0 {
+		ptr, err := convertValuesFromInputs(input.ValuesFrom)
+		if err != nil {
+			outcome = metrics.OutcomeError
+			return nil, clusterServiceApplyResult{}, err
+		}
+		valuesFromPtr = ptr
+	}
+
+	helmOpts, err := convertHelmOptionsInput(input.HelmOptions)
+	if err != nil {
+		outcome = metrics.OutcomeError
+		return nil, clusterServiceApplyResult{}, err
+	}
+
+	var serviceValues *string
+	if len(input.Values) > 0 {
+		valuesYAML, err := yaml.Marshal(input.Values)
+		if err != nil {
+			outcome = metrics.OutcomeError
+			return nil, clusterServiceApplyResult{}, fmt.Errorf("encode values: %w", err)
+		}
+		val := string(valuesYAML)
+		serviceValues = &val
+	}
+
+	templateObj, err := client.
+		Resource(api.ServiceTemplateGVR()).
+		Namespace(templateNamespace).
+		Get(ctx, templateName, metav1.GetOptions{})
+	if err != nil {
+		outcome = classifyMetricsOutcome(err)
+		logger.Error("service template validation failed", "tool", name, "error", err)
+		return nil, clusterServiceApplyResult{}, fmt.Errorf("get service template: %w", err)
+	}
+	logger.Debug("validated service template",
+		"tool", name,
+		"template_namespace", templateObj.GetNamespace(),
+		"template_name", templateObj.GetName(),
+	)
+
+	serviceSpec := api.ClusterServiceApplySpec{
+		TemplateNamespace: templateNamespace,
+		TemplateName:      templateName,
+		ServiceName:       serviceName,
+	}
+	if serviceNamespace != "" {
+		ns := serviceNamespace
+		serviceSpec.ServiceNamespace = &ns
+	}
+	if serviceValues != nil {
+		serviceSpec.Values = serviceValues
+	}
+	if valuesFromPtr != nil {
+		serviceSpec.ValuesFrom = valuesFromPtr
+	}
+	if helmOpts != nil {
+		serviceSpec.HelmOptions = helmOpts
+	}
+	if dependsOnPtr != nil {
+		serviceSpec.DependsOn = dependsOnPtr
+	}
+	if input.Priority != nil {
+		priority := *input.Priority
+		serviceSpec.Priority = &priority
+	}
+
+	applyOpts := api.ApplyClusterServiceOptions{
+		ClusterNamespace: clusterNamespace,
+		ClusterName:      clusterName,
+		DryRun:           input.DryRun,
+		Service:          serviceSpec,
+	}
+	if len(input.ProviderConfig) > 0 {
+		cfgCopy := make(map[string]any, len(input.ProviderConfig))
+		for k, v := range input.ProviderConfig {
+			cfgCopy[k] = v
+		}
+		applyOpts.ProviderConfig = &cfgCopy
+	}
+
+	applyResult, err := api.ApplyClusterService(ctx, client, applyOpts)
+	if err != nil {
+		outcome = metrics.OutcomeError
+		logger.Error("failed to apply service", "tool", name, "error", err)
+		return nil, clusterServiceApplyResult{}, err
+	}
+
+	statusSource := applyResult.Cluster
+	if !input.DryRun {
+		refreshed, err := client.
+			Resource(api.ClusterDeploymentGVR()).
+			Namespace(clusterNamespace).
+			Get(ctx, clusterName, metav1.GetOptions{})
+		if err != nil {
+			logger.Warn("failed to refresh cluster after apply", "tool", name, "error", err)
+		} else {
+			statusSource = refreshed
+		}
+	}
+
+	response := clusterServiceApplyResult{
+		Service:          applyResult.Service,
+		ClusterName:      clusterName,
+		ClusterNamespace: clusterNamespace,
+		DryRun:           input.DryRun,
+	}
+
+	appliedServiceName := serviceName
+	if applyResult.Service != nil {
+		if name, ok := applyResult.Service["name"].(string); ok && name != "" {
+			appliedServiceName = name
+		}
+	}
+	response.Status = extractServiceStatus(statusSource, appliedServiceName)
+	response.UpgradePaths = extractServiceUpgradePaths(statusSource, appliedServiceName)
+
+	statusState := ""
+	if response.Status != nil {
+		if state, ok := response.Status["state"].(string); ok {
+			statusState = state
+		}
+	}
+
+	logger.Info("cluster service apply completed",
+		"tool", name,
+		"cluster_namespace", clusterNamespace,
+		"cluster_name", clusterName,
+		"service_name", appliedServiceName,
+		"dry_run", input.DryRun,
+		"status_state", statusState,
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+
+	return nil, response, nil
+}
+
+func (t *clusterServiceApplyTool) ensureNamespaceAllowed(field, namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	if t.session == nil || t.session.NamespaceFilter == nil || t.session.IsDevMode() {
+		return nil
+	}
+	if t.session.NamespaceFilter.MatchString(namespace) {
+		return nil
+	}
+	return fmt.Errorf("%s %q not allowed by namespace filter", field, namespace)
+}
+
+func collectServiceNames(cluster *unstructured.Unstructured) map[string]struct{} {
+	names := make(map[string]struct{})
+	if cluster == nil {
+		return names
+	}
+	list, found, err := unstructured.NestedSlice(cluster.Object, "spec", "serviceSpec", "services")
+	if err != nil || !found {
+		return names
+	}
+	for _, entry := range list {
+		if m, ok := entry.(map[string]any); ok {
+			if name, ok := m["name"].(string); ok && name != "" {
+				names[name] = struct{}{}
+			}
+		}
+	}
+	return names
+}
+
+func convertValuesFromInputs(list []serviceValuesFromInput) (*[]api.ClusterServiceValuesFrom, error) {
+	entries := make([]api.ClusterServiceValuesFrom, len(list))
+	for i, src := range list {
+		kind := strings.TrimSpace(src.Kind)
+		switch strings.ToLower(kind) {
+		case "configmap":
+			kind = "ConfigMap"
+		case "secret":
+			kind = "Secret"
+		default:
+			return nil, fmt.Errorf("valuesFrom[%d].kind must be ConfigMap or Secret", i)
+		}
+		name := strings.TrimSpace(src.Name)
+		if name == "" {
+			return nil, fmt.Errorf("valuesFrom[%d].name is required", i)
+		}
+		key := strings.TrimSpace(src.Key)
+		if key == "" {
+			return nil, fmt.Errorf("valuesFrom[%d].key is required", i)
+		}
+		entries[i] = api.ClusterServiceValuesFrom{
+			Kind:     kind,
+			Name:     name,
+			Key:      key,
+			Optional: src.Optional,
+		}
+	}
+	return &entries, nil
+}
+
+func convertHelmOptionsInput(input *serviceHelmOptionsInput) (*api.ClusterServiceHelmOptions, error) {
+	if input == nil {
+		return nil, nil
+	}
+	if input.Timeout != "" {
+		if _, err := time.ParseDuration(input.Timeout); err != nil {
+			return nil, fmt.Errorf("helmOptions.timeout must be a valid duration: %w", err)
+		}
+	}
+	if input.MaxHistory != nil && *input.MaxHistory < 0 {
+		return nil, fmt.Errorf("helmOptions.maxHistory must be zero or positive")
+	}
+	return &api.ClusterServiceHelmOptions{
+		Atomic:        input.Atomic,
+		Wait:          input.Wait,
+		Timeout:       input.Timeout,
+		CleanupOnFail: input.CleanupOnFail,
+		Description:   input.Description,
+		DisableHooks:  input.DisableHooks,
+		Replace:       input.Replace,
+		SkipCRDs:      input.SkipCRDs,
+		MaxHistory:    input.MaxHistory,
+	}, nil
+}
+
+func extractServiceStatus(cluster *unstructured.Unstructured, serviceName string) map[string]any {
+	if cluster == nil || serviceName == "" {
+		return nil
+	}
+	list, found, err := unstructured.NestedSlice(cluster.Object, "status", "services")
+	if err != nil || !found {
+		return nil
+	}
+	for _, entry := range list {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name == serviceName {
+			return deepCopyJSONMap(m)
+		}
+	}
+	return nil
+}
+
+func extractServiceUpgradePaths(cluster *unstructured.Unstructured, serviceName string) []map[string]any {
+	if cluster == nil || serviceName == "" {
+		return nil
+	}
+	list, found, err := unstructured.NestedSlice(cluster.Object, "status", "servicesUpgradePaths")
+	if err != nil || !found {
+		return nil
+	}
+	var matches []map[string]any
+	for _, entry := range list {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		if name == "" {
+			if alt, ok := m["serviceName"].(string); ok {
+				name = alt
+			}
+		}
+		if name == serviceName {
+			matches = append(matches, deepCopyJSONMap(m))
+		}
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	return matches
+}
+
+func deepCopyJSONMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	copy := make(map[string]any, len(value))
+	for k, v := range value {
+		copy[k] = cloneJSONValue(v)
+	}
+	return copy
+}
+
+func cloneJSONValue(val any) any {
+	switch v := val.(type) {
+	case map[string]any:
+		return deepCopyJSONMap(v)
+	case []any:
+		cp := make([]any, len(v))
+		for i := range v {
+			cp[i] = cloneJSONValue(v[i])
+		}
+		return cp
+	default:
+		return v
+	}
+}
+
+func classifyMetricsOutcome(err error) string {
+	switch {
+	case apierrors.IsNotFound(err):
+		return metrics.OutcomeNotFound
+	case apierrors.IsForbidden(err):
+		return metrics.OutcomeForbidden
+	default:
+		return metrics.OutcomeError
+	}
 }
 
 // Namespace resolution helpers

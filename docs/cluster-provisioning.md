@@ -797,6 +797,128 @@ Uses the same rules as `deploy`:
 - **Idempotent**: Safe to call multiple times; returns success if already deleted
 - **Logging**: Records deletion attempts at INFO level
 
+### k0rdent.mgmt.clusterDeployments.services.apply
+
+Attaches or updates a `spec.serviceSpec.services[]` entry on an existing ClusterDeployment using an installed ServiceTemplate. The tool mirrors the manual workflow documented in [Adding a Service to a ClusterDeployment](https://github.com/k0rdent/docs/blob/main/docs/user/services/add-service-to-clusterdeployment.md) and immediately returns the `.status.services[]` snapshot described in [Checking status](https://github.com/k0rdent/docs/blob/main/docs/user/services/checking-status.md).
+
+**Parameters:**
+
+| Parameter          | Type    | Required | Description |
+|--------------------|---------|----------|-------------|
+| `clusterNamespace` | string  | Yes      | Namespace containing the ClusterDeployment (must satisfy the session namespace filter) |
+| `clusterName`      | string  | Yes      | Name of the ClusterDeployment to mutate |
+| `templateNamespace`| string  | Yes      | Namespace of the installed ServiceTemplate (must satisfy the session namespace filter) |
+| `templateName`     | string  | Yes      | Name of the ServiceTemplate to reference |
+| `serviceName`      | string  | No       | Logical service name (defaults to `templateName` when omitted) |
+| `serviceNamespace` | string  | No       | Namespace where the service runs (defaults to `clusterNamespace`) |
+| `values`           | object  | No       | Inline Helm values override for the service |
+| `valuesFrom`       | array   | No       | List of `{kind: ConfigMap|Secret, name, key, optional}` sources to merge into Helm values |
+| `helmOptions`      | object  | No       | Helm execution tweaks (`timeout`, `atomic`, `wait`, `cleanupOnFail`, `disableHooks`, `replace`, `skipCRDs`, `maxHistory`) |
+| `dependsOn`        | array   | No       | Service names that **must already exist** in the ClusterDeployment spec before this service reconciles |
+| `priority`         | integer | No       | Execution priority (higher values run earlier when conflicts occur) |
+| `providerConfig`   | object  | No       | Overrides merged into `.spec.serviceSpec.provider.config` (provider-specific settings) |
+| `dryRun`           | bool    | No       | When `true`, performs full validation + merge but does not persist the change |
+
+**Validation Rules:**
+- `valuesFrom[].kind` must be `ConfigMap` or `Secret`. Other kinds are rejected.
+- `dependsOn[]` must reference existing `serviceName` values already present in the ClusterDeployment. Referencing the new service (self-dependency) is not allowed.
+- `templateNamespace`, `clusterNamespace`, and `serviceNamespace` values are all checked against the session namespace filter.
+
+**Returns:**
+
+```json
+{
+  "service": {
+    "name": "minio",
+    "namespace": "tenant-a",
+    "template": "kcm-system/minio-14-1-2",
+    "values": {
+      "replicaCount": 2
+    }
+  },
+  "status": {
+    "name": "minio",
+    "state": "Provisioning",
+    "version": "14.1.2",
+    "lastTransitionTime": "2025-11-10T08:44:13Z"
+  },
+  "upgradePaths": [],
+  "clusterName": "prod-cluster",
+  "clusterNamespace": "tenant-a",
+  "dryRun": false
+}
+```
+
+- `service` echoes the payload that was (or would be) applied.
+- `status` contains the matching `.status.services[]` entry so operators can see whether the controller reports `Pending`, `Provisioning`, or `Deployed`.
+- `upgradePaths` includes any `.status.servicesUpgradePaths[]` entries related to the service.
+- `dryRun` reflects whether the server performed a mutation.
+
+**Example MCP Request (dry-run preview):**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 21,
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.mgmt.clusterDeployments.services.apply",
+    "arguments": {
+      "clusterNamespace": "tenant-a",
+      "clusterName": "prod-cluster",
+      "templateNamespace": "kcm-system",
+      "templateName": "minio-14-1-2",
+      "serviceName": "minio",
+      "dependsOn": ["ingress"],
+      "values": {
+        "replicaCount": 2,
+        "persistence": {
+          "size": "200Gi"
+        }
+      },
+      "valuesFrom": [
+        {"kind": "Secret", "name": "minio-secrets", "key": "values.yaml"}
+      ],
+      "helmOptions": {
+        "timeout": "10m",
+        "atomic": true
+      },
+      "dryRun": true
+    }
+  }
+}
+```
+
+**Example (live apply with provider overrides):**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 22,
+  "method": "tools/call",
+  "params": {
+    "name": "k0rdent.mgmt.clusterDeployments.services.apply",
+    "arguments": {
+      "clusterNamespace": "tenant-a",
+      "clusterName": "prod-cluster",
+      "templateNamespace": "kcm-system",
+      "templateName": "logging-2-4-0",
+      "serviceName": "observability",
+      "providerConfig": {
+        "aws": {
+          "iamRole": "arn:aws:iam::123456789012:role/observability"
+        }
+      }
+    }
+  }
+}
+```
+
+**Scenario Tips:**
+- Use `dryRun=true` first to review the merged payload before touching production clusters.
+- When a service fails to reconcile, re-run the tool without `dryRun` to update values; the latest status block will explain the failure.
+- Namespace-filter violations produce `forbidden` errors for both ClusterDeployment and ServiceTemplate namespaces, preventing accidental cross-tenant access.
+
 ## Configuration
 
 The cluster manager can be configured via environment variables:
