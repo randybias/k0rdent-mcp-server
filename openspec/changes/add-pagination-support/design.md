@@ -8,11 +8,28 @@ The k0rdent MCP server currently fetches all resources from Kubernetes without l
 - Cannot maintain server-side state (stateless design for HA)
 - Must remain backward compatible with existing clients
 - Must work with existing namespace filtering
+- Must cover every MCP surface we expose: tool calls, resource reads (`resources/read`), and subscription snapshots that issue initial List requests
 
 **Stakeholders:**
 - MCP clients (Claude Desktop, API consumers)
 - Cluster operators running large k0rdent deployments
 - Development team maintaining the server
+
+**MCP Surfaces Impacted:**
+- Tool calls that return large lists:
+  - `k0rdent.catalog.serviceTemplates.list`
+  - `k0rdent.mgmt.serviceTemplates.list`
+  - `k0rdent.mgmt.clusterDeployments.list`
+  - `k0rdent.mgmt.clusterDeployments.listAll`
+  - `k0rdent.mgmt.multiClusterServices.list`
+  - `k0rdent.mgmt.namespaces.list`
+  - `k0rdent.mgmt.events.list`
+  - `k0rdent.mgmt.providers.listCredentials`
+  - `k0rdent.mgmt.providers.listIdentities`
+  - `k0rdent.mgmt.clusterTemplates.list`
+- Resource templates:
+  - `k0rdent.mgmt.events` (`resources/read` and the initial snapshot seeded by `resources/subscribe`)
+- Subscriptions (`k0rdent://events/...`, `k0rdent://podlogs/...`, `k0rdent://cluster-monitor/...`) which should keep streaming behavior; only the namespace-events snapshot issues paged Lists
 
 ## Goals / Non-Goals
 
@@ -20,9 +37,10 @@ The k0rdent MCP server currently fetches all resources from Kubernetes without l
 - Bound memory usage on the server for List operations
 - Enable clients to incrementally fetch large result sets
 - Maintain backward compatibility (pagination optional)
-- Support all existing List operations (k0rdent CRDs, namespaces, events)
+- Support all existing List operations (k0rdent CRDs, namespaces, events, catalog, provider resources)
 - Provide clear errors for invalid pagination parameters
 - Make default page size configurable for different deployment scenarios
+- Ensure MCP resource reads (`k0rdent://events/{namespace}`) and subscription snapshots follow the same pagination semantics as tool calls
 
 **Non-Goals:**
 - Server-side caching or state management for pagination
@@ -138,28 +156,67 @@ The k0rdent MCP server currently fetches all resources from Kubernetes without l
 **Trade-offs:**
 - Additional validation code (minimal overhead)
 
+### Decision 7: Namespace-aware cursors for aggregated lists
+**What:** Encode the namespace scope plus the Kubernetes continue token inside our opaque continue value for list operations that iterate namespace-by-namespace (`ListClusters`, `ListTemplates`, `ListCredentials`, `ListIdentities`). Tokens take the form `base64(json{"namespace":"<ns>","continue":"<kube-token>"})`.
+
+**Why:**
+- These managers enumerate per namespace to enforce filters, so a raw Kubernetes continue token is insufficient.
+- Encoding namespace context allows us to resume from the precise namespace + item boundary without maintaining server state.
+- Keeps tokens opaque to clients while remaining forwards-compatible if we need more fields.
+
+**Alternatives considered:**
+- Track pagination state on the server keyed by session: violates stateless requirement and complicates HA.
+- Require users to page per namespace manually: leaks implementation details and increases client complexity.
+
+**Trade-offs:**
+- Slightly longer continue tokens (base64 JSON) but still opaque/portable.
+- Namespace ordering must be deterministic (alphabetical) so tokens remain valid between requests.
+
+### Decision 8: Resource URI pagination for events
+**What:** Accept `limit` and `continue` query parameters on `k0rdent://events/{namespace}` URIs. The read handler and subscription snapshot loader will apply these options when calling the events provider, and embed the next token inside `ReadResourceResult._meta["pagination"]`.
+
+**Why:**
+- `resources/read` is part of the MCP protocol we rely on; without pagination it can still OOM the server.
+- Query parameters keep URIs backward compatible and easy for clients to assemble.
+- Surfacing the next token via `_meta.pagination` mirrors how we expose tokens in tool responses.
+
+**Alternatives considered:**
+- Stuff pagination hints into the URI path: harder to evolve and conflicts with existing namespace parsing.
+- Return pagination data inside the blob payload: clients that rely on `_meta` would miss it and it would mix with event data.
+
+**Trade-offs:**
+- Resource clients must be updated to read `_meta.pagination` instead of the blob body for tokens.
+- Subscriptions still stream indefinitely—only the initial snapshot is paginated.
+
 ## Implementation Approach
 
-### Phase 1: API Layer
-1. Add `PaginationOptions` struct to `internal/k0rdent/api`
-2. Add `PaginatedResult` generic type wrapper
-3. Update all List functions to accept `PaginationOptions` and return `PaginatedResult`
-4. Add helper to apply default/max limits
+### Phase 1: Core pagination primitives
+1. Add `PaginationOptions` (`Limit`, `Continue`) and a `PaginatedResult` helper in a shared package.
+2. Implement namespace-aware cursor helpers capable of encoding/decoding namespace + Kubernetes tokens.
+3. Provide guardrails (`ApplyLimits`, `ValidateContinue`) that every surface can reuse so validation/error strings stay consistent.
 
 ### Phase 2: Configuration
-1. Add pagination config fields to runtime session
-2. Load from environment variables with defaults
-3. Update runtime-config spec documentation
+1. Add pagination config fields to runtime session.
+2. Load from environment variables with defaults (`K0RDENT_LIST_PAGE_SIZE`, `K0RDENT_LIST_MAX_PAGE_SIZE`).
+3. Update runtime-config spec documentation.
 
-### Phase 3: Tool Layer
-1. Update MCP tool schemas with pagination parameters
-2. Update tool implementations to pass pagination options to API
-3. Update tool results to include continue token
+### Phase 3: Data providers
+1. Update `internal/k0rdent/api` list helpers to accept `PaginationOptions` and call Kubernetes with `Limit`/`Continue`.
+2. Update `internal/clusters` managers (`ListClusters`, `ListTemplates`, `ListCredentials`, `ListIdentities`) to use namespace-aware cursors instead of materializing all namespaces.
+3. Update `internal/catalog/manager.List` to stream results directly from SQLite using limit/offset (or cursor) without loading the full index.
+4. Update `internal/kube/events.Provider` to pass `Limit`/`Continue` through to Kubernetes and expose helper methods for paged snapshots.
 
-### Phase 4: Testing
-1. Unit tests for validation and limits
-2. Integration tests with mock data (single/multi-page, empty, invalid token)
-3. Manual testing against real cluster
+### Phase 4: MCP layer integration
+1. Update MCP tool schemas with pagination parameters and default descriptions.
+2. Update each tool implementation to pass pagination options to the underlying provider/helper and to return `continue` in the structured output.
+3. Update `k0rdent.mgmt.events` resource template to parse `limit`/`continue` query params, include `_meta.pagination`, and reuse the provider helpers.
+4. Teach the `EventManager` subscription snapshot to stream pages sequentially so initial snapshots never load more than one page at a time. Pod logs and cluster monitor subscriptions remain unchanged.
+
+### Phase 5: Testing
+1. Unit tests for validation, config clamping, and namespace-aware cursor encoding/decoding.
+2. Provider-level tests for Kubernetes pagination (service templates, cluster deployments, multi-cluster services, events).
+3. Integration tests for every MCP tool/resource enumerated above (empty page, single page, multi-page, invalid cursor).
+4. Manual testing against a real/seeded cluster to confirm `continue` tokens plug into kubectl-style pagination.
 
 ## Risks / Trade-offs
 
