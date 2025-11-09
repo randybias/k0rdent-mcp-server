@@ -494,6 +494,274 @@ export CLUSTER_DEFAULT_NAMESPACE_DEV="kcm-system"
 export CLUSTER_DEPLOY_FIELD_OWNER="mcp.clusters"
 ```
 
+## Configuration Validation
+
+The MCP server performs pre-flight validation on cluster configurations before submitting deployments. This ensures required fields are present and catches configuration errors immediately, rather than failing 5-15 minutes into cloud provisioning.
+
+### Validation by Provider
+
+Validation rules are applied based on the template name pattern. The server detects the provider and validates required fields accordingly.
+
+#### Azure (Templates matching `azure-*`)
+
+**Required Fields:**
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `config.location` | string | Azure region | `"westus2"`, `"eastus"`, `"centralus"` |
+| `config.subscriptionID` | string | Azure subscription ID | `"12345678-1234-1234-1234-123456789abc"` |
+
+**Field Naming:**
+- Control plane and worker use `vmSize` (not `instanceType`)
+
+**Example Valid Configuration:**
+
+```json
+{
+  "location": "westus2",
+  "subscriptionID": "12345678-1234-1234-1234-123456789abc",
+  "clusterIdentity": {
+    "name": "azure-cluster-identity",
+    "namespace": "kcm-system"
+  },
+  "controlPlane": {
+    "vmSize": "Standard_A4_v2"
+  },
+  "worker": {
+    "vmSize": "Standard_A4_v2"
+  }
+}
+```
+
+**Validation Error Example:**
+
+Request missing `subscriptionID`:
+
+```json
+{
+  "name": "test-azure-cluster",
+  "template": "azure-standalone-cp-1-0-17",
+  "credential": "azure-cluster-credential",
+  "config": {
+    "location": "westus2",
+    "controlPlane": {"vmSize": "Standard_A4_v2"},
+    "worker": {"vmSize": "Standard_A4_v2"}
+  }
+}
+```
+
+Error response:
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "Azure cluster configuration validation failed:\n  - config.subscriptionID: Azure subscription ID is required (e.g., '12345678-1234-1234-1234-123456789abc')\n\nExample valid Azure configuration:\n{\n  \"location\": \"westus2\",\n  \"subscriptionID\": \"12345678-1234-1234-1234-123456789abc\",\n  \"controlPlane\": {\n    \"vmSize\": \"Standard_A4_v2\"\n  },\n  \"worker\": {\n    \"vmSize\": \"Standard_A4_v2\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-azure/"
+  }
+}
+```
+
+Corrected request:
+
+```json
+{
+  "name": "test-azure-cluster",
+  "template": "azure-standalone-cp-1-0-17",
+  "credential": "azure-cluster-credential",
+  "config": {
+    "location": "westus2",
+    "subscriptionID": "12345678-1234-1234-1234-123456789abc",
+    "clusterIdentity": {
+      "name": "azure-cluster-identity",
+      "namespace": "kcm-system"
+    },
+    "controlPlane": {"vmSize": "Standard_A4_v2"},
+    "worker": {"vmSize": "Standard_A4_v2"}
+  }
+}
+```
+
+#### AWS (Templates matching `aws-*`)
+
+**Required Fields:**
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `config.region` | string | AWS region | `"us-west-2"`, `"us-east-1"`, `"eu-west-1"` |
+
+**Field Naming:**
+- Control plane and worker use `instanceType` (not `vmSize`)
+
+**Example Valid Configuration:**
+
+```json
+{
+  "region": "us-west-2",
+  "clusterIdentity": {
+    "name": "aws-cluster-identity",
+    "namespace": "kcm-system"
+  },
+  "controlPlane": {
+    "instanceType": "t3.medium"
+  },
+  "worker": {
+    "instanceType": "t3.large"
+  }
+}
+```
+
+**Validation Error Example:**
+
+Request missing `region`:
+
+```json
+{
+  "name": "test-aws-cluster",
+  "template": "aws-standalone-cp-1-0-16",
+  "credential": "aws-cluster-credential",
+  "config": {
+    "controlPlane": {"instanceType": "t3.small"},
+    "worker": {"instanceType": "t3.small"}
+  }
+}
+```
+
+Error response:
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "AWS cluster configuration validation failed:\n  - config.region: AWS region is required (e.g., 'us-west-2', 'us-east-1', 'eu-west-1')\n\nExample valid AWS configuration:\n{\n  \"region\": \"us-west-2\",\n  \"controlPlane\": {\n    \"instanceType\": \"t3.small\"\n  },\n  \"worker\": {\n    \"instanceType\": \"t3.small\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-aws/"
+  }
+}
+```
+
+Corrected request:
+
+```json
+{
+  "name": "test-aws-cluster",
+  "template": "aws-standalone-cp-1-0-16",
+  "credential": "aws-cluster-credential",
+  "config": {
+    "region": "us-west-2",
+    "clusterIdentity": {
+      "name": "aws-cluster-identity",
+      "namespace": "kcm-system"
+    },
+    "controlPlane": {"instanceType": "t3.small"},
+    "worker": {"instanceType": "t3.small"}
+  }
+}
+```
+
+#### GCP (Templates matching `gcp-*`)
+
+**Required Fields:**
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `config.project` | string | GCP project ID | `"my-gcp-project-123456"` |
+| `config.region` | string | GCP region | `"us-central1"`, `"us-west1"`, `"europe-west1"` |
+| `config.network.name` | string | VPC network name | `"default"` or custom VPC name |
+
+**Field Naming:**
+- Control plane and worker use `instanceType` (not `vmSize`)
+
+**Example Valid Configuration:**
+
+```json
+{
+  "project": "my-gcp-project-123456",
+  "region": "us-central1",
+  "network": {
+    "name": "default"
+  },
+  "clusterIdentity": {
+    "name": "gcp-cluster-identity",
+    "namespace": "kcm-system"
+  },
+  "controlPlane": {
+    "instanceType": "n1-standard-4"
+  },
+  "worker": {
+    "instanceType": "n1-standard-4"
+  }
+}
+```
+
+**Validation Error Example:**
+
+Request missing `project` and `network.name`:
+
+```json
+{
+  "name": "test-gcp-cluster",
+  "template": "gcp-standalone-cp-1-0-15",
+  "credential": "gcp-credential",
+  "config": {
+    "region": "us-central1",
+    "controlPlane": {"instanceType": "n1-standard-4"},
+    "worker": {"instanceType": "n1-standard-4"}
+  }
+}
+```
+
+Error response:
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "GCP cluster configuration validation failed:\n  - config.project: GCP project ID is required (e.g., 'my-gcp-project-123456')\n  - config.network.name: GCP network name is required (e.g., 'default' or custom VPC name)\n\nExample valid GCP configuration:\n{\n  \"project\": \"my-gcp-project-123456\",\n  \"region\": \"us-central1\",\n  \"network\": {\n    \"name\": \"default\"\n  },\n  \"controlPlane\": {\n    \"instanceType\": \"n1-standard-4\"\n  },\n  \"worker\": {\n    \"instanceType\": \"n1-standard-4\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-gcp/"
+  }
+}
+```
+
+Corrected request:
+
+```json
+{
+  "name": "test-gcp-cluster",
+  "template": "gcp-standalone-cp-1-0-15",
+  "credential": "gcp-credential",
+  "config": {
+    "project": "my-gcp-project-123456",
+    "region": "us-central1",
+    "network": {
+      "name": "default"
+    },
+    "clusterIdentity": {
+      "name": "gcp-cluster-identity",
+      "namespace": "kcm-system"
+    },
+    "controlPlane": {"instanceType": "n1-standard-4"},
+    "worker": {"instanceType": "n1-standard-4"}
+  }
+}
+```
+
+### Benefits of Pre-Flight Validation
+
+- **Immediate Feedback**: Configuration errors are caught in seconds, not minutes
+- **Cost Savings**: Prevents failed provisioning attempts that incur cloud charges
+- **Better UX**: Clear, actionable error messages with examples
+- **Time Savings**: No waiting 5-15 minutes to discover missing required fields
+
+### Validation Scope
+
+**Current Coverage:**
+- AWS templates (pattern: `aws-*`)
+- Azure templates (pattern: `azure-*`)
+- GCP templates (pattern: `gcp-*`)
+
+**Future Enhancements:**
+- vSphere template validation
+- OpenStack template validation
+- Schema-based validation using ClusterTemplate `spec.schema`
+- Cloud-specific validations (e.g., VM SKU availability)
+
 ## Azure Baseline Configuration
 
 The following configuration represents a tested baseline for Azure deployments, used in live integration tests:
@@ -547,7 +815,7 @@ config:
 ### Deployment Timeline
 
 Typical deployment timeline for Azure baseline:
-- **Validation**: < 1 minute
+- **Validation**: < 1 second (immediate)
 - **Infrastructure Provisioning**: 5-8 minutes
 - **Kubernetes Bootstrap**: 3-5 minutes
 - **Total**: 10-15 minutes to Ready state
@@ -790,7 +1058,7 @@ The cluster should no longer appear in the list.
 
 **Resolution**: Specify an explicit `namespace` parameter that matches the configured filter.
 
-**Invalid Configuration**
+**Invalid Configuration (General)**
 
 ```json
 {
@@ -802,6 +1070,59 @@ The cluster should no longer appear in the list.
 ```
 
 **Resolution**: Check the template's `configSchema` and ensure all required fields are provided.
+
+**Azure Configuration Validation Failure**
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "Azure cluster configuration validation failed:\n  - config.location: Azure location is required (e.g., 'westus2', 'eastus', 'centralus')\n  - config.subscriptionID: Azure subscription ID is required (e.g., '12345678-1234-1234-1234-123456789abc')\n\nExample valid Azure configuration:\n{\n  \"location\": \"westus2\",\n  \"subscriptionID\": \"12345678-1234-1234-1234-123456789abc\",\n  \"controlPlane\": {\n    \"vmSize\": \"Standard_A4_v2\"\n  },\n  \"worker\": {\n    \"vmSize\": \"Standard_A4_v2\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-azure/"
+  }
+}
+```
+
+**Resolution**:
+- Ensure `config.location` is set to a valid Azure region (e.g., `"westus2"`, `"eastus"`)
+- Ensure `config.subscriptionID` is set to your Azure subscription ID (format: `"12345678-1234-1234-1234-123456789abc"`)
+- Use `vmSize` (not `instanceType`) for control plane and worker configuration
+- See the Azure baseline configuration section for a complete working example
+
+**AWS Configuration Validation Failure**
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "AWS cluster configuration validation failed:\n  - config.region: AWS region is required (e.g., 'us-west-2', 'us-east-1', 'eu-west-1')\n\nExample valid AWS configuration:\n{\n  \"region\": \"us-west-2\",\n  \"controlPlane\": {\n    \"instanceType\": \"t3.small\"\n  },\n  \"worker\": {\n    \"instanceType\": \"t3.small\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-aws/"
+  }
+}
+```
+
+**Resolution**:
+- Ensure `config.region` is set to a valid AWS region (e.g., `"us-west-2"`, `"us-east-1"`, `"eu-west-1"`)
+- Use `instanceType` (not `vmSize`) for control plane and worker configuration
+- Verify the region matches where your AWS credentials have access
+- See [k0rdent AWS quickstart](https://docs.k0rdent.io/latest/quickstarts/quickstart-2-aws/) for detailed setup instructions
+
+**GCP Configuration Validation Failure**
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "GCP cluster configuration validation failed:\n  - config.project: GCP project ID is required (e.g., 'my-gcp-project-123456')\n  - config.region: GCP region is required (e.g., 'us-central1', 'us-west1', 'europe-west1')\n  - config.network.name: GCP network name is required (e.g., 'default' or custom VPC name)\n\nExample valid GCP configuration:\n{\n  \"project\": \"my-gcp-project-123456\",\n  \"region\": \"us-central1\",\n  \"network\": {\n    \"name\": \"default\"\n  },\n  \"controlPlane\": {\n    \"instanceType\": \"n1-standard-4\"\n  },\n  \"worker\": {\n    \"instanceType\": \"n1-standard-4\"\n  }\n}\n\nFor more information, see: https://docs.k0rdent.io/latest/quickstarts/quickstart-2-gcp/"
+  }
+}
+```
+
+**Resolution**:
+- Ensure `config.project` is set to your GCP project ID (e.g., `"my-gcp-project-123456"`)
+- Ensure `config.region` is set to a valid GCP region (e.g., `"us-central1"`, `"us-west1"`)
+- Ensure `config.network.name` is set to a valid VPC network name (commonly `"default"`)
+- Use `instanceType` (not `vmSize`) for control plane and worker configuration
+- Verify your GCP credentials have access to the specified project and network
+- See [k0rdent GCP quickstart](https://docs.k0rdent.io/latest/quickstarts/quickstart-2-gcp/) for detailed setup instructions
 
 **RBAC Denial**
 
@@ -903,6 +1224,33 @@ kubectl get machinedeployment -n kcm-system
 
 ### Common Issues
 
+**Configuration Validation Failure**
+
+If you encounter validation errors when deploying a cluster, the error message will clearly indicate which fields are missing and provide examples.
+
+**For Azure:**
+1. Ensure both `config.location` and `config.subscriptionID` are present
+2. Use `vmSize` field for control plane and worker (not `instanceType`)
+3. Common locations: `"westus2"`, `"eastus"`, `"centralus"`
+4. Subscription ID format: `"12345678-1234-1234-1234-123456789abc"`
+
+**For AWS:**
+1. Ensure `config.region` is present
+2. Use `instanceType` field for control plane and worker (not `vmSize`)
+3. Common regions: `"us-west-2"`, `"us-east-1"`, `"eu-west-1"`
+
+**For GCP:**
+1. Ensure `config.project`, `config.region`, and `config.network.name` are all present
+2. Use `instanceType` field for control plane and worker (not `vmSize`)
+3. Common regions: `"us-central1"`, `"us-west1"`, `"europe-west1"`
+4. Network name is commonly `"default"` for the default VPC
+
+**Debug Tips:**
+- Review the error message carefully - it includes the exact missing fields
+- Compare your config against the validation error example in the response
+- Refer to the Configuration Validation section in this document
+- Check the provider-specific k0rdent quickstart documentation
+
 **Deployment Stuck in Provisioning**
 
 1. Check k0rdent controller logs:
@@ -952,16 +1300,32 @@ kubectl get machinedeployment -n kcm-system
 - **Management Cluster Only**: Tools interact with management cluster resources; actual child clusters take time to provision
 - **No Update Support**: Cannot update existing deployments (must delete and recreate)
 - **No Status Polling**: Tools return immediately; use separate list calls to monitor progress
-- **No Validation**: Limited pre-flight config validation (relies on Kubernetes admission)
+- **Limited Validation**: Pre-flight config validation covers AWS, Azure, and GCP required fields only; other providers and optional fields not validated
 - **No Rollback**: No automated rollback on deployment failure
 - **No Cost Estimation**: No built-in cost estimation or quota checking
 - **No Multi-Region**: Single region per deployment (no automatic cross-region HA)
+
+### Validation Coverage
+
+**Currently Validated:**
+- AWS: Required `region` field
+- Azure: Required `location` and `subscriptionID` fields
+- GCP: Required `project`, `region`, and `network.name` fields
+
+**Not Yet Validated:**
+- vSphere templates
+- OpenStack templates
+- Optional but recommended fields
+- Cloud-specific constraints (e.g., VM SKU availability, region-specific quotas)
+- Cross-resource validation (e.g., credential validity, network existence)
 
 ### Planned Enhancements
 
 Future versions may include:
 - Real-time deployment progress notifications via MCP resources
-- Configuration validation against template schema
+- Schema-based validation using ClusterTemplate `spec.schema`
+- Validation for vSphere and OpenStack providers
+- Cloud-specific validations (e.g., Azure VM SKU validation)
 - Pre-flight checks (quotas, credentials, network)
 - Update/upgrade operations for existing deployments
 - Cost estimation and budget enforcement

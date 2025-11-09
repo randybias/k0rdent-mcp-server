@@ -97,6 +97,41 @@ func (m *Manager) DeployCluster(ctx context.Context, namespace string, req Deplo
 		"namespace", credentialNS,
 	)
 
+	// Validate configuration for known cloud providers
+	validationResult := ValidateConfig(templateName, req.Config)
+	if !validationResult.IsValid() {
+		logger.Warn("cluster configuration validation failed",
+			"provider", validationResult.Provider,
+			"errors", validationResult.Errors,
+		)
+
+		// Format error message based on provider
+		var errorMsg string
+		switch validationResult.Provider {
+		case ProviderAWS:
+			errorMsg = FormatAWSValidationError(validationResult.Errors)
+		case ProviderAzure:
+			errorMsg = FormatAzureValidationError(validationResult.Errors)
+		case ProviderGCP:
+			errorMsg = FormatGCPValidationError(validationResult.Errors)
+		default:
+			// Generic format for unknown providers (shouldn't reach here)
+			errorMsg = "Configuration validation failed"
+			for _, err := range validationResult.Errors {
+				errorMsg += fmt.Sprintf("\n  - %s: %s", err.Field, err.Message)
+			}
+		}
+
+		return DeployResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, errorMsg)
+	}
+
+	// Log successful validation if provider was detected
+	if validationResult.Provider != ProviderUnknown {
+		logger.Debug("configuration validation passed",
+			"provider", validationResult.Provider,
+		)
+	}
+
 	// Build ClusterDeployment manifest
 	deployment := m.buildClusterDeployment(req, namespace, templateNS, templateName, credentialNS, credentialName)
 

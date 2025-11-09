@@ -9,14 +9,40 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/clusters"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
+
+// Common defaults for cluster deployments
+const (
+	defaultControlPlaneNumber = 3
+	defaultWorkersNumber      = 2
+	defaultAWSRootVolumeSize  = 32
+	defaultAzureRootVolumeSize = 30
+	defaultGCPRootVolumeSize  = 30
+)
+
+// validateAndDefaultNodeCounts validates and applies defaults to control plane and worker counts
+func validateAndDefaultNodeCounts(controlPlaneNumber, workersNumber int) (int, int, error) {
+	// Validate and default control plane number
+	if controlPlaneNumber == 0 {
+		controlPlaneNumber = defaultControlPlaneNumber
+	} else if controlPlaneNumber < 0 {
+		return 0, 0, fmt.Errorf("controlPlaneNumber must be at least 1 (got %d)", controlPlaneNumber)
+	}
+
+	// Validate and default workers number
+	if workersNumber == 0 {
+		workersNumber = defaultWorkersNumber
+	} else if workersNumber < 0 {
+		return 0, 0, fmt.Errorf("workersNumber must be at least 1 (got %d)", workersNumber)
+	}
+
+	return controlPlaneNumber, workersNumber, nil
+}
 
 // Tool handlers
 
@@ -65,25 +91,6 @@ type clustersListTemplatesInput struct {
 type clustersListTemplatesResult struct {
 	Templates []clusters.ClusterTemplateSummary `json:"templates"`
 }
-
-type clustersDeployTool struct {
-	session *runtime.Session
-}
-
-type clustersDeployInput struct {
-	Name             string            `json:"name"`
-	Template         string            `json:"template"`
-	Credential       string            `json:"credential"`
-	Namespace        string            `json:"namespace,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"`
-	Config           map[string]any    `json:"config"`
-	Wait             bool              `json:"wait,omitempty"`             // Wait for cluster to be ready before returning
-	PollInterval     string            `json:"pollInterval,omitempty"`     // How often to check status (e.g. "30s"), default "30s"
-	ProvisionTimeout string            `json:"provisionTimeout,omitempty"` // Max time to wait for provisioning (e.g. "30m"), default "30m"
-	StallThreshold   string            `json:"stallThreshold,omitempty"`   // Warn if no progress for this duration (e.g. "10m"), default "10m"
-}
-
-type clustersDeployResult clusters.DeployResult
 
 type clustersDeleteTool struct {
 	session *runtime.Session
@@ -179,17 +186,46 @@ func registerClusters(server *mcp.Server, session *runtime.Session) error {
 		},
 	}, listClustersTool.list)
 
-	// Register k0rdent.mgmt.clusterDeployments.deploy
-	deployTool := &clustersDeployTool{session: session}
+	// Register provider-specific cluster deployment tools
+
+	// Register k0rdent.provider.aws.clusterDeployments.deploy
+	awsDeployTool := &awsClusterDeployTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "k0rdent.mgmt.clusterDeployments.deploy",
-		Description: "Deploy a new ClusterDeployment using specified template and credential. In DEV_ALLOW_ANY mode, defaults to kcm-system namespace. In OIDC_REQUIRED mode, requires explicit namespace.",
+		Name:        "k0rdent.provider.aws.clusterDeployments.deploy",
+		Description: "Deploy a new AWS Kubernetes cluster. Automatically selects the latest stable AWS template and validates AWS-specific configuration (region, instanceType). Exposes AWS-specific parameters directly in the tool schema for easy agent discovery.",
 		Meta: mcp.Meta{
-			"plane":    "mgmt",
+			"plane":    "provider",
 			"category": "clusterDeployments",
 			"action":   "deploy",
+			"provider": "aws",
 		},
-	}, deployTool.deploy)
+	}, awsDeployTool.deploy)
+
+	// Register k0rdent.provider.azure.clusterDeployments.deploy
+	azureDeployTool := &azureClusterDeployTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.provider.azure.clusterDeployments.deploy",
+		Description: "Deploy a new Azure Kubernetes cluster. Automatically selects the latest stable Azure template and validates Azure-specific configuration (location, subscriptionID, vmSize). Exposes Azure-specific parameters directly in the tool schema for easy agent discovery.",
+		Meta: mcp.Meta{
+			"plane":    "provider",
+			"category": "clusterDeployments",
+			"action":   "deploy",
+			"provider": "azure",
+		},
+	}, azureDeployTool.deploy)
+
+	// Register k0rdent.provider.gcp.clusterDeployments.deploy
+	gcpDeployTool := &gcpClusterDeployTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.provider.gcp.clusterDeployments.deploy",
+		Description: "Deploy a new GCP Kubernetes cluster. Automatically selects the latest stable GCP template and validates GCP-specific configuration (project, region, network.name, instanceType). Exposes GCP-specific parameters directly in the tool schema for easy agent discovery.",
+		Meta: mcp.Meta{
+			"plane":    "provider",
+			"category": "clusterDeployments",
+			"action":   "deploy",
+			"provider": "gcp",
+		},
+	}, gcpDeployTool.deploy)
 
 	// Register k0rdent.mgmt.clusterDeployments.delete
 	deleteTool := &clustersDeleteTool{session: session}
@@ -355,325 +391,6 @@ func (t *clustersListTemplatesTool) list(ctx context.Context, req *mcp.CallToolR
 	return nil, clustersListTemplatesResult{Templates: templates}, nil
 }
 
-func (t *clustersDeployTool) deploy(ctx context.Context, req *mcp.CallToolRequest, input clustersDeployInput) (*mcp.CallToolResult, clustersDeployResult, error) {
-	name := toolName(req)
-	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
-	start := time.Now()
-
-	// TODO: Add metrics tracking (task 2.3, 3.4)
-	// Increment clusters_deploy_total counter (label by outcome: success/error)
-	// Record duration histogram on completion
-
-	logger.Debug("deploying cluster",
-		"tool", name,
-		"cluster_name", input.Name,
-		"template", input.Template,
-		"credential", input.Credential,
-		"namespace", input.Namespace,
-	)
-
-	// Validate required fields
-	if input.Name == "" {
-		return nil, clustersDeployResult{}, fmt.Errorf("cluster name is required")
-	}
-	if input.Template == "" {
-		return nil, clustersDeployResult{}, fmt.Errorf("template is required")
-	}
-	if input.Credential == "" {
-		return nil, clustersDeployResult{}, fmt.Errorf("credential is required")
-	}
-	if input.Config == nil || len(input.Config) == 0 {
-		return nil, clustersDeployResult{}, fmt.Errorf("config is required")
-	}
-
-	// Resolve target namespace
-	targetNamespace, err := t.resolveDeployNamespace(ctx, input.Namespace, logger)
-	if err != nil {
-		logger.Error("failed to resolve deploy namespace", "tool", name, "error", err)
-		return nil, clustersDeployResult{}, fmt.Errorf("resolve namespace: %w", err)
-	}
-
-	logger.Debug("resolved deploy namespace", "tool", name, "namespace", targetNamespace)
-
-	// Build deploy request
-	deployReq := clusters.DeployRequest{
-		Name:       input.Name,
-		Template:   input.Template,
-		Credential: input.Credential,
-		Namespace:  input.Namespace,
-		Labels:     input.Labels,
-		Config:     input.Config,
-	}
-
-	// Deploy cluster using cluster manager
-	deployResult, err := t.session.Clusters.DeployCluster(ctx, targetNamespace, deployReq)
-	if err != nil {
-		logger.Error("failed to deploy cluster", "tool", name, "error", err)
-		return nil, clustersDeployResult{}, fmt.Errorf("deploy cluster: %w", err)
-	}
-
-	result := clustersDeployResult(deployResult)
-
-	// If wait is requested, monitor the cluster until ready or timeout
-	if input.Wait {
-		logger.Info("waiting for cluster to be ready",
-			"tool", name,
-			"cluster_name", input.Name,
-			"namespace", targetNamespace,
-		)
-
-		// Parse wait parameters with defaults
-		pollInterval := 30 * time.Second
-		if input.PollInterval != "" {
-			if d, err := time.ParseDuration(input.PollInterval); err == nil {
-				pollInterval = d
-			} else {
-				logger.Warn("invalid pollInterval, using default", "input", input.PollInterval, "default", pollInterval)
-			}
-		}
-
-		provisionTimeout := 30 * time.Minute
-		if input.ProvisionTimeout != "" {
-			if d, err := time.ParseDuration(input.ProvisionTimeout); err == nil {
-				provisionTimeout = d
-			} else {
-				logger.Warn("invalid provisionTimeout, using default", "input", input.ProvisionTimeout, "default", provisionTimeout)
-			}
-		}
-
-		stallThreshold := 10 * time.Minute
-		if input.StallThreshold != "" {
-			if d, err := time.ParseDuration(input.StallThreshold); err == nil {
-				stallThreshold = d
-			} else {
-				logger.Warn("invalid stallThreshold, using default", "input", input.StallThreshold, "default", stallThreshold)
-			}
-		}
-
-		// Wait for cluster to be ready
-		ready, err := t.waitForClusterReady(ctx, targetNamespace, input.Name, pollInterval, provisionTimeout, stallThreshold, logger)
-		if err != nil {
-			logger.Error("error while waiting for cluster", "tool", name, "error", err)
-			return nil, clustersDeployResult{}, fmt.Errorf("wait for cluster ready: %w", err)
-		}
-
-		if !ready {
-			logger.Warn("cluster did not become ready within timeout",
-				"tool", name,
-				"cluster_name", input.Name,
-				"timeout", provisionTimeout,
-			)
-			return nil, clustersDeployResult{}, fmt.Errorf("cluster %s did not become ready within %v", input.Name, provisionTimeout)
-		}
-
-		logger.Info("cluster is ready",
-			"tool", name,
-			"cluster_name", input.Name,
-			"namespace", targetNamespace,
-		)
-	}
-
-	logger.Info("cluster deployment completed",
-		"tool", name,
-		"cluster_name", input.Name,
-		"namespace", targetNamespace,
-		"status", result.Status,
-		"duration_ms", time.Since(start).Milliseconds(),
-	)
-
-	return nil, result, nil
-}
-
-// waitForClusterReady polls the ClusterDeployment until it becomes ready or times out
-func (t *clustersDeployTool) waitForClusterReady(
-	ctx context.Context,
-	namespace string,
-	name string,
-	pollInterval time.Duration,
-	timeout time.Duration,
-	stallThreshold time.Duration,
-	logger *slog.Logger,
-) (bool, error) {
-	startTime := time.Now()
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	var lastConditionState string
-	lastStateChange := time.Now()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-
-		case <-ticker.C:
-			// Check if we've exceeded the timeout
-			if time.Since(startTime) > timeout {
-				logger.Warn("cluster provisioning timeout exceeded",
-					"cluster", name,
-					"namespace", namespace,
-					"timeout", timeout,
-				)
-				return false, nil
-			}
-
-			// Get current cluster status
-			obj, err := t.session.Clients.Dynamic.Resource(clusters.ClusterDeploymentsGVR).
-				Namespace(namespace).
-				Get(ctx, name, metav1.GetOptions{})
-			if err != nil {
-				logger.Error("failed to get cluster status",
-					"cluster", name,
-					"namespace", namespace,
-					"error", err,
-				)
-				return false, fmt.Errorf("get cluster status: %w", err)
-			}
-
-			// Check if cluster is ready
-			if clusters.IsResourceReady(obj) {
-				logger.Info("cluster is ready",
-					"cluster", name,
-					"namespace", namespace,
-					"duration", time.Since(startTime),
-				)
-				return true, nil
-			}
-
-			// Extract current condition state for stall detection
-			currentState := extractConditionState(obj)
-
-			// Check for state changes (stall detection)
-			if currentState != lastConditionState {
-				logger.Debug("cluster state changed",
-					"cluster", name,
-					"namespace", namespace,
-					"state", currentState,
-				)
-				lastConditionState = currentState
-				lastStateChange = time.Now()
-			} else {
-				stallDuration := time.Since(lastStateChange)
-				if stallDuration > stallThreshold {
-					logger.Warn("no progress detected",
-						"cluster", name,
-						"namespace", namespace,
-						"stall_duration", stallDuration,
-						"state", currentState,
-					)
-				}
-			}
-		}
-	}
-}
-
-// extractConditionState extracts a string representation of the current condition state
-func extractConditionState(obj *unstructured.Unstructured) string {
-	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
-	if err != nil || !found || len(conditions) == 0 {
-		return "no-conditions"
-	}
-
-	// Find the most recent condition
-	var latestCondition map[string]interface{}
-	var latestTime time.Time
-
-	for _, cond := range conditions {
-		condMap, ok := cond.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		timeStr, _, _ := unstructured.NestedString(condMap, "lastTransitionTime")
-		if timeStr == "" {
-			continue
-		}
-
-		t, err := time.Parse(time.RFC3339, timeStr)
-		if err != nil {
-			continue
-		}
-
-		if latestCondition == nil || t.After(latestTime) {
-			latestCondition = condMap
-			latestTime = t
-		}
-	}
-
-	if latestCondition == nil {
-		return "no-valid-conditions"
-	}
-
-	condType, _, _ := unstructured.NestedString(latestCondition, "type")
-	status, _, _ := unstructured.NestedString(latestCondition, "status")
-	reason, _, _ := unstructured.NestedString(latestCondition, "reason")
-	message, _, _ := unstructured.NestedString(latestCondition, "message")
-
-	return fmt.Sprintf("%s=%s reason=%s msg=%s", condType, status, reason, message)
-}
-
-// waitForDeletion polls the ClusterDeployment until it is deleted or times out
-func (t *clustersDeleteTool) waitForDeletion(
-	ctx context.Context,
-	namespace string,
-	name string,
-	pollInterval time.Duration,
-	timeout time.Duration,
-	logger *slog.Logger,
-) (bool, error) {
-	startTime := time.Now()
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-
-		case <-ticker.C:
-			// Check if we've exceeded the timeout
-			if time.Since(startTime) > timeout {
-				logger.Warn("deletion timeout exceeded",
-					"cluster", name,
-					"namespace", namespace,
-					"timeout", timeout,
-				)
-				return false, nil
-			}
-
-			// Check if cluster still exists
-			_, err := t.session.Clients.Dynamic.Resource(clusters.ClusterDeploymentsGVR).
-				Namespace(namespace).
-				Get(ctx, name, metav1.GetOptions{})
-
-			if err != nil {
-				// Check if it's a NotFound error (cluster was deleted)
-				if errors.IsNotFound(err) {
-					logger.Info("cluster deleted successfully",
-						"cluster", name,
-						"namespace", namespace,
-						"duration", time.Since(startTime),
-					)
-					return true, nil
-				}
-				// Other errors
-				logger.Error("error checking cluster status during deletion",
-					"cluster", name,
-					"namespace", namespace,
-					"error", err,
-				)
-				return false, fmt.Errorf("check cluster status: %w", err)
-			}
-
-			// Cluster still exists, log progress
-			logger.Debug("cluster still exists, waiting for deletion",
-				"cluster", name,
-				"namespace", namespace,
-				"elapsed", time.Since(startTime),
-			)
-		}
-	}
-}
 
 func (t *clustersDeleteTool) delete(ctx context.Context, req *mcp.CallToolRequest, input clustersDeleteInput) (*mcp.CallToolResult, clustersDeleteResult, error) {
 	name := toolName(req)
@@ -736,8 +453,9 @@ func (t *clustersDeleteTool) delete(ctx context.Context, req *mcp.CallToolReques
 			}
 		}
 
-		// Wait for deletion to complete
-		completed, err := t.waitForDeletion(ctx, targetNamespace, input.Name, pollInterval, deletionTimeout, logger)
+		// Wait for deletion to complete using shared helper
+		waitHelper := &clusterWaitHelper{session: t.session}
+		completed, err := waitHelper.waitForDeletion(ctx, targetNamespace, input.Name, pollInterval, deletionTimeout, logger)
 		if err != nil {
 			logger.Error("error waiting for deletion", "tool", name, "error", err)
 			return nil, result, fmt.Errorf("wait for deletion: %w", err)
@@ -908,29 +626,6 @@ func (t *clustersListTemplatesTool) resolveTargetNamespaces(ctx context.Context,
 	default:
 		return nil, fmt.Errorf("invalid scope: %s (must be 'global', 'local', or 'all')", scope)
 	}
-}
-
-// resolveDeployNamespace determines the target namespace for cluster deployment
-func (t *clustersDeployTool) resolveDeployNamespace(ctx context.Context, namespace string, logger *slog.Logger) (string, error) {
-	// If specific namespace provided, validate it
-	if namespace != "" {
-		if t.session.NamespaceFilter != nil && !t.session.NamespaceFilter.MatchString(namespace) {
-			return "", fmt.Errorf("namespace %q not allowed by namespace filter", namespace)
-		}
-		return namespace, nil
-	}
-
-	// No namespace specified - determine default behavior
-	// DEV_ALLOW_ANY mode (no filter or matches all): default to kcm-system
-	// OIDC_REQUIRED mode (restricted filter): require explicit namespace
-	if t.session.NamespaceFilter == nil || t.session.NamespaceFilter.MatchString("kcm-system") {
-		// DEV_ALLOW_ANY mode - default to kcm-system
-		logger.Debug("defaulting to kcm-system namespace (DEV_ALLOW_ANY mode)")
-		return "kcm-system", nil
-	}
-
-	// OIDC_REQUIRED mode - require explicit namespace
-	return "", fmt.Errorf("namespace must be specified in OIDC_REQUIRED mode (use 'namespace' parameter)")
 }
 
 // resolveDeleteNamespace determines the target namespace for cluster deletion
