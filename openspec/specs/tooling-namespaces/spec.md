@@ -52,8 +52,8 @@ TBD - created by archiving change refactor-tool-namespace-hierarchy. Update Purp
 | mgmt     | `k0rdent.mgmt.podLogs`                                   | ✅ Implemented | Streaming pod log tails (resource template). |
 | mgmt     | `k0rdent.mgmt.events.list`                               | ✅ Implemented | Lists K8s events in mgmt cluster. |
 | mgmt     | `k0rdent.mgmt.events`                                    | ✅ Implemented | Streaming namespace events (resource template). |
-| mgmt     | `k0rdent.mgmt.graph.snapshot`                            | ✅ Implemented | Snapshot graph of mgmt resources. |
-| mgmt     | `k0rdent.mgmt.graph`                                     | ✅ Implemented | Streaming graph deltas (resource template). |
+| mgmt     | `k0rdent.mgmt.graph.snapshot`                            | Deferred | Removed by change `remove-graph-feature`; future spec will reintroduce scoped graph relationships. |
+| mgmt     | `k0rdent.mgmt.graph`                                     | Deferred | Removed by change `remove-graph-feature`; future spec will define graph streaming semantics. |
 | mgmt     | `k0rdent.mgmt.multiClusterServices.list`                 | ✅ Implemented | Lists MultiClusterService CRs. |
 | provider | `k0rdent.provider.aws.clusterDeployments.deploy`         | ✅ Implemented | Deploys AWS cluster with AWS-specific parameters. |
 | provider | `k0rdent.provider.azure.clusterDeployments.deploy`       | ✅ Implemented | Deploys Azure cluster with Azure-specific parameters. |
@@ -82,4 +82,3 @@ TBD - created by archiving change refactor-tool-namespace-hierarchy. Update Purp
 #### Scenario: Lint failure
 - WHEN a tool is registered as `k0rdent.foo.bar`
 - THEN linting fails with guidance referencing this spec until the name uses an approved plane.
-

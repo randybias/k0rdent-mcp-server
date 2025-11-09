@@ -11,17 +11,17 @@ import (
 
 // Context keys for per-session infrastructure.
 const (
-    ContextKeyEventManager  = "core:eventManager"
-    ContextKeyPodLogManager = "core:podLogManager"
-    ContextKeyGraphManager  = "core:graphManager"
+	ContextKeyEventManager          = "core:eventManager"
+	ContextKeyPodLogManager         = "core:podLogManager"
+	ContextKeyClusterMonitorManager = "core:clusterMonitorManager"
 )
 
 // Options control which tool groups are registered for a session.
 type Options struct {
-    EventManager       *EventManager
-    PodLogManager      *PodLogManager
-    GraphManager       *GraphManager
-    CatalogManager     *catalog.Manager
+	EventManager          *EventManager
+	PodLogManager         *PodLogManager
+	ClusterMonitorManager *ClusterMonitorManager
+	CatalogManager        *catalog.Manager
 }
 
 // Register installs the core tool suite on the provided MCP server.
@@ -37,29 +37,29 @@ func Register(server *mcp.Server, session *runtime.Session, opts Options) error 
 		return err
 	}
 
-    if err := registerEvents(server, session, opts.EventManager); err != nil {
-        return err
-    }
+	if err := registerEvents(server, session, opts.EventManager); err != nil {
+		return err
+	}
 
-    if err := registerPodLogs(server, session, opts.PodLogManager); err != nil {
-        return err
-    }
+	if err := registerClusterMonitor(server, session, opts.ClusterMonitorManager); err != nil {
+		return err
+	}
 
-    if err := registerK0rdentTools(server, session); err != nil {
-        return err
-    }
+	if err := registerPodLogs(server, session, opts.PodLogManager); err != nil {
+		return err
+	}
 
-    if err := registerGraph(server, session, opts.GraphManager); err != nil {
-        return err
-    }
+	if err := registerK0rdentTools(server, session); err != nil {
+		return err
+	}
 
-    if err := registerCatalog(server, session, opts.CatalogManager); err != nil {
-        return err
-    }
+	if err := registerCatalog(server, session, opts.CatalogManager); err != nil {
+		return err
+	}
 
-    if err := registerClusters(server, session); err != nil {
-        return err
-    }
+	if err := registerClusters(server, session); err != nil {
+		return err
+	}
 
-    return nil
+	return nil
 }

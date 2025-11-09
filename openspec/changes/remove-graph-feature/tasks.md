@@ -1,0 +1,3 @@
+- [x] T1 Remove GraphManager-backed tooling (graph.go, registrations, subscription handlers) so MCP no longer exposes graph resources.
+- [x] T2 Update `openspec/specs/tooling-namespaces/spec.md` to mark the graph tools as deferred and reference this placeholder change for future scoping.
+- [x] T3 Run `GOCACHE=$(pwd)/.gocache go test ./...` (or equivalent) plus `openspec validate remove-graph-feature --strict` to confirm the removal and spec delta.

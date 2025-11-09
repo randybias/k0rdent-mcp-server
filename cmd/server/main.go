@@ -307,15 +307,15 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 		router := core.NewSubscriptionRouter()
 		eventManager := core.NewEventManager()
 		podLogManager := core.NewPodLogManager()
-		graphManager := core.NewGraphManager()
+		clusterMonitorManager := core.NewClusterMonitorManager()
 
 		router.Register("events", eventManager)
 		router.Register("podlogs", podLogManager)
-		router.Register("graph", graphManager)
+		router.Register("cluster-monitor", clusterMonitorManager)
 
 		ctx.Values[core.ContextKeyEventManager] = eventManager
 		ctx.Values[core.ContextKeyPodLogManager] = podLogManager
-		ctx.Values[core.ContextKeyGraphManager] = graphManager
+		ctx.Values[core.ContextKeyClusterMonitorManager] = clusterMonitorManager
 
 		return &mcp.ServerOptions{
 			HasTools:           true,
@@ -331,9 +331,9 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 			return err
 		}
 		var (
-			eventManager  *core.EventManager
-			podLogManager *core.PodLogManager
-			graphManager  *core.GraphManager
+			eventManager          *core.EventManager
+			podLogManager         *core.PodLogManager
+			clusterMonitorManager *core.ClusterMonitorManager
 		)
 		if ctx != nil && ctx.Values != nil {
 			if mgr, ok := ctx.Values[core.ContextKeyEventManager].(*core.EventManager); ok {
@@ -342,15 +342,15 @@ func initializeServer(ctx context.Context) (*serverSetup, error) {
 			if mgr, ok := ctx.Values[core.ContextKeyPodLogManager].(*core.PodLogManager); ok {
 				podLogManager = mgr
 			}
-			if mgr, ok := ctx.Values[core.ContextKeyGraphManager].(*core.GraphManager); ok {
-				graphManager = mgr
+			if mgr, ok := ctx.Values[core.ContextKeyClusterMonitorManager].(*core.ClusterMonitorManager); ok {
+				clusterMonitorManager = mgr
 			}
 		}
 		return core.Register(s, session, core.Options{
-			EventManager:   eventManager,
-			PodLogManager:  podLogManager,
-			GraphManager:   graphManager,
-			CatalogManager: catalogManager,
+			EventManager:          eventManager,
+			PodLogManager:         podLogManager,
+			ClusterMonitorManager: clusterMonitorManager,
+			CatalogManager:        catalogManager,
 		})
 	}
 
