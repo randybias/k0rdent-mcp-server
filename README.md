@@ -1,24 +1,234 @@
 # k0rdent MCP Server
 
-The k0rdent MCP server exposes management-plane tooling over the Model Context Protocol so assistants can provision, inspect, and troubleshoot child clusters safely. It wraps Kubernetes resources (ClusterDeployments, credentials, templates, logs, events, etc.) behind curated tools and subscriptions that respect namespace filters and per-session RBAC.
+⚠️ **Experimental Development Tool** – Early stage, expect issues
+🚧 **Localhost Only** – No TLS, admin kubeconfig required
+🤖 **AI-Assisted** – Code quality and security not production-ready
 
-## Features
-- **Cluster Deployment Monitoring** – Subscribe to `k0rdent://cluster-monitor/{namespace}/{name}` to follow provisioning progress with filtered, high-signal updates. See [docs/features/cluster-monitoring.md](docs/features/cluster-monitoring.md).
-- **Cluster Provisioning Tools** – List templates/credentials and launch or delete ClusterDeployments programmatically.
-- **Service Attachments** – Attach installed ServiceTemplates to running clusters with `k0rdent.mgmt.clusterDeployments.services.apply`, including dry-run previews before mutating production clusters. See [docs/cluster-provisioning.md](docs/cluster-provisioning.md#k0rdentmgmtclusterdeploymentsservicesapply).
-- **Namespace Event Streaming** – Follow live Kubernetes events via `k0rdent://events/{namespace}`.
-- **Pod Log Streaming** – Tail application logs with `k0rdent://podlogs/{namespace}/{pod}/{container}`.
-- **Catalog Access** – Browse and install catalog entries exposed by the k0rdent control plane.
+## What This Is
 
-## Getting Started
-1. Build and run the server: `make run` (requires access to the management cluster and matching kubeconfig settings in `config.yaml`).
-2. Connect an MCP-compatible client (e.g., Claude Desktop) using the server URL and an authentication token recognized by the management cluster.
-3. List available tools with `tools/list`, then call any tool by name. Subscriptions use `subscriptions/subscribe` with the URIs above.
+An experimental MCP server that exposes k0rdent cluster management capabilities to AI assistants through the Model Context Protocol. This is a **development tool** for k0rdent developers and early adopters who want to explore MCP integration, not a production-ready solution.
+
+**Key Points:**
+- Runs on localhost only (no TLS support)
+- Requires admin kubeconfig to an existing k0rdent management cluster
+- Does NOT provision a management cluster for you
+- Built with AI assistance - code quality needs improvement
+- Provider support varies: Azure tested, AWS minimal, GCP untested
+
+## What This Isn't
+
+- ❌ Not production-ready
+- ❌ Not a standalone tool (needs existing k0rdent cluster)
+- ❌ Not secure for network exposure (localhost only)
+- ❌ Not fully tested across all providers
+- ❌ Not suitable for RBAC-restricted environments (requires admin access)
+
+## Prerequisites (All Required)
+
+Before starting, you must have:
+
+1. **Existing k0rdent management cluster** – This tool does NOT create one for you. You need a running k0rdent installation.
+2. **Admin kubeconfig** – Full cluster access required. RBAC limitations not tested.
+3. **Go 1.24+** – To build from source.
+4. **MCP-compatible client** – Claude Desktop recommended.
+5. **k0rdent knowledge** – Understanding of ClusterDeployments, ServiceTemplates, credentials, etc.
+6. **Localhost deployment** – No remote access, no TLS.
+
+## Known Limitations & Issues
+
+Read this section carefully before using:
+
+### Provider Support
+- **GCP**: Not tested, may not work at all
+- **Azure**: Works but requires manual subscription ID parameter (not auto-detected)
+- **AWS**: Minimally tested, expect issues
+
+### Authentication & Security
+- **Only admin kubeconfig** – No OIDC support, no RBAC enforcement
+- **AI-assisted code** – Not security-reviewed, use at your own risk
+- **Localhost only** – No TLS, runs on 127.0.0.1 only
+- **No auth modes** – Only kubeconfig-based access
+
+### Functionality Gaps
+- **Catalog operations** – Synchronization may have bugs
+- **Concurrent operations** – Race conditions possible
+- **Error recovery** – May leave orphaned cloud resources
+- **Resource cleanup** – Not guaranteed on failures
+
+### Deployment Warnings
+- **Creates real cloud resources** – Costs apply to your cloud account
+- **May leave orphans** – Failed deployments may not clean up completely
+- **Experimental** – Expect crashes and unexpected behavior
+
+## Quick Start (Experimental)
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/k0rdent/k0rdent-mcp-server.git
+   cd k0rdent-mcp-server
+   ```
+
+2. **Build the server**
+   ```bash
+   go build -o server cmd/server/main.go
+   ```
+
+3. **Create configuration**
+   Create `config.yaml` pointing to your k0rdent cluster:
+   ```yaml
+   server:
+     port: 3000
+
+   kube:
+     kubeconfig: /path/to/admin-kubeconfig
+     # Must have admin-level access to k0rdent cluster
+   ```
+
+4. **Start the server**
+   ```bash
+   ./server start
+   ```
+
+5. **Connect Claude Desktop**
+   Configure your MCP client to connect to `http://localhost:3000/mcp`
+
+6. **Try safe operations first**
+   - List namespaces (safest)
+   - List cluster templates
+   - List credentials
+
+   **WARNING**: Cluster deployment operations will create real cloud resources and incur costs.
+
+## What Works (Tested Minimally)
+
+These features have been tested and should work:
+
+- **Azure Cluster Deployment** – Works if you provide subscription ID
+- **Cluster Monitoring** – Subscribe to provisioning progress via `k0rdent://cluster-monitor/{namespace}/{name}`
+- **Namespace Operations** – List namespaces and basic K8s operations
+- **Event Streaming** – Watch namespace events via `k0rdent://events/{namespace}`
+- **Pod Logs** – Tail container logs via `k0rdent://podlogs/{namespace}/{pod}/{container}`
+- **Service Attachments** – Attach ServiceTemplates to running clusters (needs more testing)
+- **Credential Management** – List provider credentials
+
+## What's Untested or Broken
+
+These features may not work:
+
+- **GCP Deployments** – Completely untested, likely broken
+- **AWS Deployments** – Minimally tested, may have issues
+- **Catalog Operations** – Known bugs in synchronization
+- **Non-admin Access** – RBAC filtering not implemented
+- **Concurrent Operations** – Race conditions likely
+- **Error Recovery** – May fail ungracefully
+- **Resource Cleanup** – Orphaned resources possible on failures
+
+## Configuration
+
+Minimal configuration example:
+
+```yaml
+# config.yaml
+server:
+  port: 3000
+  # TLS not supported - localhost only
+
+kube:
+  kubeconfig: /path/to/k0rdent-admin-kubeconfig
+  # Must be admin-level access
+  # RBAC enforcement not implemented
+
+# No OIDC configuration supported yet
+# No remote access configuration supported
+```
+
+See existing documentation for additional configuration options (with caveats).
+
+## Tools Overview
+
+The server exposes MCP tools for:
+
+| Category | Tools | Status |
+|----------|-------|--------|
+| Cluster Management | list, deploy, delete | Azure works, AWS minimal, GCP untested |
+| Monitoring | cluster-monitor subscription | Tested on Azure |
+| Troubleshooting | events, pod logs | Basic functionality works |
+| Catalog | list, install ServiceTemplates | May have bugs |
+| Credentials | list providers, credentials | Works |
+| Templates | list ClusterTemplates | Works |
+
+For detailed tool documentation, see `docs/` directory.
 
 ## Documentation
-- [Cluster Provisioning](docs/cluster-provisioning.md)
-- [Provider-Specific Deployment Tools](docs/provider-specific-deployment.md)
-- [Cluster Deployment Monitoring](docs/features/cluster-monitoring.md)
-- [Live Test Playbooks](docs/live-tests.md)
 
-For more specs and change proposals, see the `openspec/` directory or run `openspec list`.
+- [Cluster Provisioning](docs/cluster-provisioning.md) – Deployment workflows (Azure focus)
+- [Provider-Specific Tools](docs/provider-specific-deployment.md) – Per-provider deployment details
+- [Cluster Monitoring](docs/features/cluster-monitoring.md) – Real-time provisioning updates
+- [Catalog Operations](docs/catalog.md) – Installing service templates
+- [Live Tests](docs/live-tests.md) – Test playbooks for validation
+- [Troubleshooting Guide](docs/TROUBLESHOOTING.md) – Common issues and solutions
+- [Contributing Guide](CONTRIBUTING.md) – Development workflow and OpenSpec process
+- [Development Setup](docs/DEVELOPMENT.md) – Local development environment
+
+For proposed changes and specifications, see the `openspec/` directory or run `openspec list`.
+
+## Contributing
+
+This experimental project was built with AI assistance. Code quality and security need improvement. Contributions are welcome, especially:
+
+- Testing GCP and AWS deployment paths
+- Fixing catalog synchronization bugs
+- Improving error handling and recovery
+- Adding proper RBAC support
+- Security review and hardening
+- Fixing AI-generated code issues
+- Writing tests for untested code paths
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the OpenSpec workflow and development guidelines.
+
+## Security & Disclaimer
+
+**READ THIS BEFORE USING:**
+
+- ⚠️ **Not production-ready** – Experimental software, use at own risk
+- ⚠️ **AI-assisted code** – May contain security vulnerabilities
+- ⚠️ **Admin access required** – No RBAC enforcement, assumes full cluster access
+- ⚠️ **Localhost only** – No TLS, not safe for network exposure
+- ⚠️ **Creates real cloud resources** – Costs apply to your accounts
+- ⚠️ **May leave orphaned resources** – Failed operations may not clean up
+- ⚠️ **No warranty** – Use at your own risk
+
+**Recommendations:**
+- Use non-production clusters only
+- Set up cloud cost alerts before deploying
+- Review cloud resources after operations
+- Keep admin kubeconfig secure
+- Do not expose server to network
+
+## Roadmap (Maybe)
+
+Potential future improvements (no promises):
+
+- Fix and test GCP deployment path
+- Stabilize AWS deployments
+- Fix catalog synchronization bugs
+- Add RBAC support (non-admin access)
+- Add TLS support for remote access
+- Security review and hardening
+- Production deployment options
+- Improved error handling and recovery
+
+See `openspec list` for detailed proposed changes.
+
+## Getting Help
+
+- **Issues**: https://github.com/k0rdent/k0rdent-mcp-server/issues
+- **Discussions**: https://github.com/k0rdent/k0rdent-mcp-server/discussions
+- **k0rdent Docs**: https://docs.k0rdent.io
+- **MCP Protocol**: https://modelcontextprotocol.io
+
+For development questions, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[Add license information here]

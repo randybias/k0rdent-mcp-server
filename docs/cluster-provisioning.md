@@ -1,6 +1,15 @@
 # k0rdent Cluster Provisioning Tools
 
+> **Status**: Experimental – Azure tested, AWS minimal, GCP untested
+> **Last Updated**: 2025-01
+> **Prerequisites**: Admin kubeconfig to k0rdent management cluster
+
 The MCP server provides tools for provisioning and managing k0rdent child clusters programmatically. These tools enable end-to-end cluster lifecycle management from discovering credentials and templates through deployment and deletion.
+
+**Testing Status by Provider:**
+- **Azure**: ✅ Tested and working (requires subscription ID)
+- **AWS**: ⚠️ Minimally tested, may have issues
+- **GCP**: ❌ Untested, likely broken
 
 ## Overview
 

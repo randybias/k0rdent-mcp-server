@@ -1,6 +1,15 @@
 # Provider-Specific Deployment Tools
 
+> **Status**: Experimental – Testing varies by provider
+> **Last Updated**: 2025-01
+> **Prerequisites**: Provider credentials configured in k0rdent cluster
+
 This document explains the provider-specific cluster deployment tools and their design rationale. These tools optimize for AI agent discoverability by exposing provider-specific parameters directly in MCP tool schemas.
+
+**Testing Status:**
+- **Azure**: ✅ Tested and working
+- **AWS**: ⚠️ Minimally tested
+- **GCP**: ❌ Untested, likely broken
 
 ## Why Provider-Specific Tools?
 

@@ -1,6 +1,15 @@
 # Cluster Deployment Monitoring
 
+> **Status**: Tested on Azure deployments
+> **Last Updated**: 2025-01
+> **Prerequisites**: Active ClusterDeployment in progress
+
 Cluster deployments often take several minutes and touch multiple controllers. The cluster monitoring stream turns that noisy lifecycle into a handful of high-value updates any MCP client can display in real time.
+
+**Testing Status:**
+- **Azure deployments**: ✅ Fully tested
+- **AWS deployments**: ⚠️ Minimally tested
+- **GCP deployments**: ❌ Untested
 
 ## Overview
 
