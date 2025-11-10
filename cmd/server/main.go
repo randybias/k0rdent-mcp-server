@@ -160,10 +160,41 @@ Flags:
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	setup, err := initializeServer(ctx)
+	// Load configuration first to validate and show banner before full initialization
+	bootstrapManager := logging.NewManager(logging.Options{Level: slog.LevelInfo})
+	bootstrapLogger := logging.WithComponent(bootstrapManager.Logger(), "bootstrap")
+
+	buildInfo := version.Get()
+	bootstrapLogger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
+
+	settings, err := config.NewLoader(bootstrapLogger).Load(ctx)
 	if err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		_ = bootstrapManager.Close(closeCtx)
 		return err
 	}
+
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = defaultListenAddr
+	}
+
+	// Print startup banner BEFORE full server initialization
+	printStartupSummary(os.Stdout, settings, addr, *values.pidFile)
+
+	setup, err := initializeServerWithSettings(ctx, settings, buildInfo)
+	if err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		_ = bootstrapManager.Close(closeCtx)
+		return err
+	}
+
+	closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+	_ = bootstrapManager.Close(closeCtx)
+	cancel()
+
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
 		defer cancel()
@@ -180,7 +211,6 @@ Flags:
 		_ = cli.RemovePID(*values.pidFile)
 	}()
 
-	printStartupSummary(os.Stdout, setup.settings, setup.httpServer.Addr, *values.pidFile)
 	logStartupConfiguration(logger, setup.settings, setup.httpServer.Addr, *values.pidFile)
 
 	logger.Info("http server listening", "addr", setup.httpServer.Addr, "auth_mode", setup.authMode)
@@ -252,31 +282,13 @@ type serverSetup struct {
 	settings   *config.Settings
 }
 
-func initializeServer(ctx context.Context) (*serverSetup, error) {
-	bootstrapManager := logging.NewManager(logging.Options{Level: slog.LevelInfo})
-	bootstrapLogger := logging.WithComponent(bootstrapManager.Logger(), "bootstrap")
-
-	buildInfo := version.Get()
-	bootstrapLogger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
-
-	settings, err := config.NewLoader(bootstrapLogger).Load(ctx)
-	if err != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
-		defer cancel()
-		_ = bootstrapManager.Close(closeCtx)
-		return nil, err
-	}
-
+func initializeServerWithSettings(ctx context.Context, settings *config.Settings, buildInfo version.Info) (*serverSetup, error) {
 	logOptions := logging.Options{Level: settings.Logging.Level}
 	if settings.Logging.ExternalSinkEnabled {
 		logOptions.Sink = logging.NewJSONSink(os.Stderr)
 	}
 
 	logManager := logging.NewManager(logOptions)
-	closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
-	defer cancel()
-	_ = bootstrapManager.Close(closeCtx)
-
 	logger := logging.WithComponent(logManager.Logger(), "bootstrap")
 	slog.SetDefault(logger)
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -315,6 +316,9 @@ func defaultDiscoveryPing(ctx context.Context, baseCfg *rest.Config) error {
 	}
 
 	cfg := rest.CopyConfig(baseCfg)
+	// Set a 10-second timeout for the discovery ping to avoid hanging
+	cfg.Timeout = 10 * time.Second
+
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("create discovery client: %w", err)
