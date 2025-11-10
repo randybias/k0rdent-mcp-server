@@ -55,6 +55,29 @@ type ObjectReference struct {
 	UID       string `json:"uid,omitempty"`
 }
 
+// ClusterMetadata captures basic cluster identification and context for operational monitoring.
+type ClusterMetadata struct {
+	Name          string                      `json:"name"`
+	Namespace     string                      `json:"namespace"`
+	TemplateRef   clusters.ResourceReference  `json:"templateRef"`
+	CredentialRef clusters.ResourceReference  `json:"credentialRef"`
+	Provider      string                      `json:"provider"`   // cloudProvider (azure, aws, gcp)
+	Region        string                      `json:"region"`     // location/region
+	CreatedAt     time.Time                   `json:"createdAt"`
+}
+
+// ServiceStatus captures the deployment state of a single service on a cluster.
+type ServiceStatus struct {
+	Name               string                      `json:"name"`
+	Namespace          string                      `json:"namespace,omitempty"`
+	Template           string                      `json:"template"`
+	State              string                      `json:"state"` // Ready, Pending, Failed, Upgrading, etc.
+	Type               string                      `json:"type,omitempty"`
+	Version            string                      `json:"version,omitempty"`
+	Conditions         []clusters.ConditionSummary `json:"conditions,omitempty"`
+	LastTransitionTime *time.Time                  `json:"lastTransitionTime,omitempty"`
+}
+
 // ProgressUpdate encapsulates a single streaming delta published to clients.
 type ProgressUpdate struct {
 	Timestamp     time.Time                   `json:"timestamp"`
@@ -67,6 +90,8 @@ type ProgressUpdate struct {
 	RelatedObject *ObjectReference            `json:"relatedObject,omitempty"`
 	Conditions    []clusters.ConditionSummary `json:"conditions,omitempty"`
 	Terminal      bool                        `json:"terminal,omitempty"`
+	Metadata      ClusterMetadata             `json:"metadata"`           // Basic operational context
+	Services      []ServiceStatus             `json:"services,omitempty"` // Service deployment states
 }
 
 // IsTerminal reports whether the supplied phase represents a terminal lifecycle state.

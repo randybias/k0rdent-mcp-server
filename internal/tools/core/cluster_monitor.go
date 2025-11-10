@@ -703,6 +703,34 @@ func buildClusterProgress(obj *unstructured.Unstructured, events []eventsprovide
 	if phase == clustermonitor.PhaseFailed {
 		severity = clustermonitor.SeverityError
 	}
+
+	// Build cluster metadata for operational context
+	metadata := clustermonitor.ClusterMetadata{
+		Name:          summary.Name,
+		Namespace:     summary.Namespace,
+		TemplateRef:   summary.TemplateRef,
+		CredentialRef: summary.CredentialRef,
+		Provider:      summary.CloudProvider,
+		Region:        summary.Region,
+		CreatedAt:     summary.CreatedAt,
+	}
+
+	// Extract service states
+	serviceStatuses := clusters.ExtractServiceStatuses(obj)
+	services := make([]clustermonitor.ServiceStatus, 0, len(serviceStatuses))
+	for _, svc := range serviceStatuses {
+		services = append(services, clustermonitor.ServiceStatus{
+			Name:               svc.Name,
+			Namespace:          svc.Namespace,
+			Template:           svc.Template,
+			State:              svc.State,
+			Type:               svc.Type,
+			Version:            svc.Version,
+			Conditions:         svc.Conditions,
+			LastTransitionTime: svc.LastTransitionTime,
+		})
+	}
+
 	return clustermonitor.ProgressUpdate{
 		Phase:      phase,
 		Progress:   progress,
@@ -712,6 +740,8 @@ func buildClusterProgress(obj *unstructured.Unstructured, events []eventsprovide
 		Severity:   severity,
 		Conditions: summary.Conditions,
 		Terminal:   phase.IsTerminal(),
+		Metadata:   metadata,
+		Services:   services,
 	}
 }
 

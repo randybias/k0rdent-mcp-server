@@ -97,6 +97,86 @@ func ExtractServiceTemplates(obj *unstructured.Unstructured) []string {
 	return templates
 }
 
+// ServiceStatusSummary captures the deployment state of a single service on a cluster.
+type ServiceStatusSummary struct {
+	Name               string             `json:"name"`
+	Namespace          string             `json:"namespace,omitempty"`
+	Template           string             `json:"template"`
+	State              string             `json:"state"` // Ready, Pending, Failed, Upgrading, etc.
+	Type               string             `json:"type,omitempty"`
+	Version            string             `json:"version,omitempty"`
+	Conditions         []ConditionSummary `json:"conditions,omitempty"`
+	LastTransitionTime *time.Time         `json:"lastTransitionTime,omitempty"`
+}
+
+// ExtractServiceStatuses extracts detailed per-service state information from .status.services.
+func ExtractServiceStatuses(obj *unstructured.Unstructured) []ServiceStatusSummary {
+	if obj == nil {
+		return nil
+	}
+
+	list, found, err := unstructured.NestedSlice(obj.Object, "status", "services")
+	if !found || err != nil || len(list) == 0 {
+		return nil
+	}
+
+	services := make([]ServiceStatusSummary, 0, len(list))
+	for _, entry := range list {
+		svcMap, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		svc := ServiceStatusSummary{
+			Name:      asString(svcMap["name"]),
+			Namespace: asString(svcMap["namespace"]),
+			Template:  asString(svcMap["template"]),
+			State:     asString(svcMap["state"]),
+			Type:      asString(svcMap["type"]),
+			Version:   asString(svcMap["version"]),
+		}
+
+		// Skip services with no name
+		if svc.Name == "" {
+			continue
+		}
+
+		// Extract lastTransitionTime
+		if ts := asString(svcMap["lastTransitionTime"]); ts != "" {
+			if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
+				svc.LastTransitionTime = &parsed
+			}
+		}
+
+		// Extract conditions array
+		if condList, ok := svcMap["conditions"].([]any); ok && len(condList) > 0 {
+			svc.Conditions = make([]ConditionSummary, 0, len(condList))
+			for _, condEntry := range condList {
+				condMap, ok := condEntry.(map[string]any)
+				if !ok {
+					continue
+				}
+				cond := ConditionSummary{
+					Type:    asString(condMap["type"]),
+					Status:  asString(condMap["status"]),
+					Reason:  asString(condMap["reason"]),
+					Message: asString(condMap["message"]),
+				}
+				if condTs := asString(condMap["lastTransitionTime"]); condTs != "" {
+					if parsed, err := time.Parse(time.RFC3339, condTs); err == nil {
+						cond.LastTransitionTime = &parsed
+					}
+				}
+				svc.Conditions = append(svc.Conditions, cond)
+			}
+		}
+
+		services = append(services, svc)
+	}
+
+	return services
+}
+
 func buildTemplateReference(obj *unstructured.Unstructured, defaultNS string) ResourceReference {
 	ref := buildReferenceFromPath(obj, defaultNS, "spec", "template")
 	if ref.Version == "" {
