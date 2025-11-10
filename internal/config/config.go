@@ -160,18 +160,12 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 		return nil, err
 	}
 
-	if err := l.ping(ctx, restCfg); err != nil {
-		err = fmt.Errorf("kubernetes discovery ping failed: %w", err)
-		log.Error("kubernetes discovery ping failed", "error", err)
-		return nil, err
-	}
-
 	log.Info("configuration loaded",
 		"context", contextName,
 		"auth_mode", authMode,
 		"source", source)
 
-	return &Settings{
+	settings := &Settings{
 		RestConfig:      restCfg,
 		ContextName:     contextName,
 		NamespaceFilter: namespaceFilter,
@@ -180,7 +174,18 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 		RawConfig:       cfg,
 		Logging:         loggingSettings,
 		Cluster:         clusterSettings,
-	}, nil
+	}
+
+	// Ping cluster after loading configuration so banner can be shown first
+	if l.ping != nil {
+		if err := l.ping(ctx, restCfg); err != nil {
+			err = fmt.Errorf("kubernetes discovery ping failed: %w", err)
+			log.Error("kubernetes discovery ping failed", "error", err)
+			return settings, err
+		}
+	}
+
+	return settings, nil
 }
 
 func (l *Loader) readKubeconfig() (SourceType, []byte, error) {

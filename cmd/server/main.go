@@ -167,21 +167,25 @@ Flags:
 	buildInfo := version.Get()
 	bootstrapLogger.Info("starting k0rdent MCP server", "version", buildInfo.Version, "commit", buildInfo.GitCommit)
 
-	settings, err := config.NewLoader(bootstrapLogger).Load(ctx)
-	if err != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
-		defer cancel()
-		_ = bootstrapManager.Close(closeCtx)
-		return err
-	}
+	settings, loadErr := config.NewLoader(bootstrapLogger).Load(ctx)
 
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
 		addr = defaultListenAddr
 	}
 
-	// Print startup banner BEFORE full server initialization
-	printStartupSummary(os.Stdout, settings, addr, *values.pidFile)
+	// Print startup banner even if ping failed, to show the configuration being used
+	if settings != nil {
+		printStartupSummary(os.Stdout, settings, addr, *values.pidFile)
+	}
+
+	// Now fail if config loading had errors (after showing banner)
+	if loadErr != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), gracefulTimeout)
+		defer cancel()
+		_ = bootstrapManager.Close(closeCtx)
+		return loadErr
+	}
 
 	setup, err := initializeServerWithSettings(ctx, settings, buildInfo)
 	if err != nil {
