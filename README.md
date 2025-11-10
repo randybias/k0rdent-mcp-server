@@ -78,8 +78,8 @@ Read this section carefully before using:
    # Required: Point to your k0rdent cluster kubeconfig
    export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/admin-kubeconfig
 
-   # Optional: Override default port (6767)
-   export LISTEN_ADDR=:3000
+   # Optional: Override default (defaults to 127.0.0.1:6767 for security)
+   export LISTEN_ADDR=127.0.0.1:3000
 
    # Optional: Set log level
    export LOG_LEVEL=debug
@@ -131,19 +131,16 @@ The server is configured entirely through environment variables (no config file)
 ### Required Variables
 
 ```bash
-# Kubeconfig (choose ONE method):
-export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/kubeconfig  # Path to file
-# OR
-export K0RDENT_MGMT_KUBECONFIG_B64=<base64-encoded>      # Base64-encoded
-# OR
-export K0RDENT_MGMT_KUBECONFIG_TEXT=<kubeconfig-yaml>    # Direct YAML
+# Kubeconfig path (required)
+export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/kubeconfig
 ```
 
 ### Optional Variables
 
 ```bash
 # Server configuration
-export LISTEN_ADDR=:6767                    # Listen address (default: :6767)
+export LISTEN_ADDR=127.0.0.1:6767           # Listen address (default: 127.0.0.1:6767)
+                                            # Use 0.0.0.0:6767 to bind to all interfaces (NOT RECOMMENDED - no TLS)
 export AUTH_MODE=DEV_ALLOW_ANY              # Auth mode (default: DEV_ALLOW_ANY)
                                             # Options: DEV_ALLOW_ANY, OIDC_REQUIRED
 

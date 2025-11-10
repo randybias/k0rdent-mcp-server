@@ -65,7 +65,7 @@ func TestPrintStartupSummary(t *testing.T) {
 func TestStartupSummaryAttributes(t *testing.T) {
 	settings := &config.Settings{
 		AuthMode:    config.AuthModeOIDCRequired,
-		Source:      config.SourceText,
+		Source:      config.SourcePath,
 		ContextName: "prod",
 		Logging: config.LoggingSettings{
 			Level:               slog.LevelWarn,
@@ -90,7 +90,7 @@ func TestStartupSummaryAttributes(t *testing.T) {
 	cases := map[string]any{
 		"listen_addr":           ":8443",
 		"auth_mode":             config.AuthModeOIDCRequired,
-		"kubeconfig_source":     config.SourceText,
+		"kubeconfig_source":     config.SourcePath,
 		"kubeconfig_context":    "prod",
 		"namespace_filter":      "",
 		"log_level":             slog.LevelWarn.String(),
@@ -108,7 +108,7 @@ func TestStartupSummaryAttributes(t *testing.T) {
 func TestLogStartupConfiguration(t *testing.T) {
 	settings := &config.Settings{
 		AuthMode: config.AuthModeDevAllowAny,
-		Source:   config.SourceB64,
+		Source:   config.SourcePath,
 		Logging:  config.LoggingSettings{Level: slog.LevelInfo},
 	}
 

@@ -16,7 +16,7 @@ Common issues and solutions when running the k0rdent MCP server.
 lsof -i :6767
 
 # Kill the process or change port via environment variable
-export LISTEN_ADDR=:3001  # Use different port
+export LISTEN_ADDR=127.0.0.1:3001  # Use different port
 ./server start
 ```
 

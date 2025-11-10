@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,8 +19,6 @@ import (
 
 const (
 	envKubeconfigPath = "K0RDENT_MGMT_KUBECONFIG_PATH"
-	envKubeconfigB64  = "K0RDENT_MGMT_KUBECONFIG_B64"
-	envKubeconfigText = "K0RDENT_MGMT_KUBECONFIG_TEXT"
 	envContext        = "K0RDENT_MGMT_CONTEXT"
 	envNamespaceExpr  = "K0RDENT_NAMESPACE_FILTER"
 	envAuthMode       = "AUTH_MODE"
@@ -53,8 +50,6 @@ type SourceType string
 
 const (
 	SourcePath SourceType = "path"
-	SourceB64  SourceType = "base64"
-	SourceText SourceType = "text"
 )
 
 // Settings captures runtime configuration derived from the environment.
@@ -189,43 +184,16 @@ func (l *Loader) Load(ctx context.Context) (*Settings, error) {
 
 func (l *Loader) readKubeconfig() (SourceType, []byte, error) {
 	path, hasPath := l.envLookup(envKubeconfigPath)
-	b64, hasB64 := l.envLookup(envKubeconfigB64)
-	text, hasText := l.envLookup(envKubeconfigText)
 
-	sourcesSet := 0
-	if hasPath && path != "" {
-		sourcesSet++
-	}
-	if hasB64 && b64 != "" {
-		sourcesSet++
-	}
-	if hasText && text != "" {
-		sourcesSet++
+	if !hasPath || path == "" {
+		return "", nil, errors.New("K0RDENT_MGMT_KUBECONFIG_PATH must be provided")
 	}
 
-	if sourcesSet == 0 {
-		return "", nil, errors.New("one of K0RDENT_MGMT_KUBECONFIG_PATH, _B64, or _TEXT must be provided")
+	data, err := l.readFile(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("read kubeconfig path: %w", err)
 	}
-	if sourcesSet > 1 {
-		return "", nil, errors.New("only one of K0RDENT_MGMT_KUBECONFIG_PATH, _B64, or _TEXT may be provided")
-	}
-
-	switch {
-	case hasPath && path != "":
-		data, err := l.readFile(path)
-		if err != nil {
-			return "", nil, fmt.Errorf("read kubeconfig path: %w", err)
-		}
-		return SourcePath, data, nil
-	case hasB64 && b64 != "":
-		data, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return "", nil, fmt.Errorf("decode K0RDENT_MGMT_KUBECONFIG_B64: %w", err)
-		}
-		return SourceB64, data, nil
-	default:
-		return SourceText, []byte(text), nil
-	}
+	return SourcePath, data, nil
 }
 
 func (l *Loader) resolveContext(cfg *clientcmdapi.Config) (string, error) {

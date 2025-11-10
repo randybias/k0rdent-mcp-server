@@ -37,8 +37,8 @@ Set environment variables to point to a **non-production** k0rdent cluster:
 # Required: kubeconfig for test cluster
 export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/test-cluster-kubeconfig
 
-# Optional: custom port (default is 6767)
-export LISTEN_ADDR=:3000
+# Optional: custom port (default is 127.0.0.1:6767)
+export LISTEN_ADDR=127.0.0.1:3000
 
 # Optional: debug logging
 export LOG_LEVEL=debug

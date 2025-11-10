@@ -101,10 +101,8 @@ users:
 	}
 }
 
-func TestLoadRejectsInvalidBase64(t *testing.T) {
-	env := map[string]string{
-		envKubeconfigB64: "!!!notbase64!!!",
-	}
+func TestLoadRequiresKubeconfigPath(t *testing.T) {
+	env := map[string]string{}
 
 	loader := NewLoader(testLogger())
 	loader.envLookup = func(key string) (string, bool) {
@@ -120,43 +118,16 @@ func TestLoadRejectsInvalidBase64(t *testing.T) {
 
 	_, err := loader.Load(context.Background())
 	if err == nil {
-		t.Fatal("expected error for invalid base64 input")
+		t.Fatal("expected error when kubeconfig path is not provided")
 	}
-	if !strings.Contains(err.Error(), "decode K0RDENT_MGMT_KUBECONFIG_B64") {
-		t.Fatalf("expected decode error, got %v", err)
-	}
-}
-
-func TestLoadRejectsMultipleSources(t *testing.T) {
-	env := map[string]string{
-		envKubeconfigPath: "/tmp/config",
-		envKubeconfigText: "fake",
-	}
-
-	loader := NewLoader(testLogger())
-	loader.envLookup = func(key string) (string, bool) {
-		val, ok := env[key]
-		return val, ok
-	}
-	loader.readFile = func(string) ([]byte, error) {
-		return nil, errors.New("should not be called")
-	}
-	loader.ping = func(context.Context, *rest.Config) error {
-		return errors.New("should not be called")
-	}
-
-	_, err := loader.Load(context.Background())
-	if err == nil {
-		t.Fatal("expected error when multiple kubeconfig sources are set")
-	}
-	if !strings.Contains(err.Error(), "only one of") {
-		t.Fatalf("expected only one source error, got %v", err)
+	if !strings.Contains(err.Error(), "K0RDENT_MGMT_KUBECONFIG_PATH must be provided") {
+		t.Fatalf("expected kubeconfig path required error, got %v", err)
 	}
 }
 
 func TestLoadRejectsInvalidNamespaceRegex(t *testing.T) {
 	env := map[string]string{
-		envKubeconfigText: minimalKubeconfig(),
+		envKubeconfigPath: "/tmp/kubeconfig",
 		envNamespaceExpr:  "(",
 	}
 
@@ -165,8 +136,8 @@ func TestLoadRejectsInvalidNamespaceRegex(t *testing.T) {
 		val, ok := env[key]
 		return val, ok
 	}
-	loader.readFile = func(string) ([]byte, error) {
-		return nil, errors.New("should not be called")
+	loader.readFile = func(path string) ([]byte, error) {
+		return []byte(minimalKubeconfig()), nil
 	}
 	loader.ping = func(context.Context, *rest.Config) error {
 		return nil
@@ -183,7 +154,7 @@ func TestLoadRejectsInvalidNamespaceRegex(t *testing.T) {
 
 func TestLoadRejectsInvalidAuthMode(t *testing.T) {
 	env := map[string]string{
-		envKubeconfigText: minimalKubeconfig(),
+		envKubeconfigPath: "/tmp/kubeconfig",
 		envAuthMode:       "NOT_VALID",
 	}
 
@@ -192,8 +163,8 @@ func TestLoadRejectsInvalidAuthMode(t *testing.T) {
 		val, ok := env[key]
 		return val, ok
 	}
-	loader.readFile = func(string) ([]byte, error) {
-		return nil, errors.New("should not be called")
+	loader.readFile = func(path string) ([]byte, error) {
+		return []byte(minimalKubeconfig()), nil
 	}
 	loader.ping = func(context.Context, *rest.Config) error {
 		return nil
@@ -226,7 +197,7 @@ func TestLoadEmitsStructuredLogs(t *testing.T) {
 	})
 
 	env := map[string]string{
-		envKubeconfigText: minimalKubeconfig(),
+		envKubeconfigPath: "/tmp/kubeconfig",
 	}
 
 	loader := NewLoader(logger)
@@ -234,8 +205,8 @@ func TestLoadEmitsStructuredLogs(t *testing.T) {
 		val, ok := env[key]
 		return val, ok
 	}
-	loader.readFile = func(string) ([]byte, error) {
-		return nil, errors.New("should not be called")
+	loader.readFile = func(path string) ([]byte, error) {
+		return []byte(minimalKubeconfig()), nil
 	}
 	loader.ping = func(context.Context, *rest.Config) error {
 		return nil
@@ -273,7 +244,7 @@ func TestResolveLoggingLevelInvalid(t *testing.T) {
 	})
 
 	env := map[string]string{
-		envKubeconfigText: minimalKubeconfig(),
+		envKubeconfigPath: "/tmp/kubeconfig",
 		envLogLevel:       "LOUD",
 	}
 
@@ -282,7 +253,9 @@ func TestResolveLoggingLevelInvalid(t *testing.T) {
 		val, ok := env[key]
 		return val, ok
 	}
-	loader.readFile = func(string) ([]byte, error) { return nil, errors.New("should not be called") }
+	loader.readFile = func(path string) ([]byte, error) {
+		return []byte(minimalKubeconfig()), nil
+	}
 	loader.ping = func(context.Context, *rest.Config) error { return nil }
 
 	settings, err := loader.Load(ctx)
@@ -307,7 +280,7 @@ func TestResolveLoggingSinkEnabled(t *testing.T) {
 
 	loader := NewLoader(testLogger())
 	env := map[string]string{
-		envKubeconfigText: minimalKubeconfig(),
+		envKubeconfigPath: "/tmp/kubeconfig",
 		envLogSinkEnabled: "true",
 		envLogLevel:       "debug",
 	}
@@ -315,7 +288,9 @@ func TestResolveLoggingSinkEnabled(t *testing.T) {
 		val, ok := env[key]
 		return val, ok
 	}
-	loader.readFile = func(string) ([]byte, error) { return nil, errors.New("should not be called") }
+	loader.readFile = func(path string) ([]byte, error) {
+		return []byte(minimalKubeconfig()), nil
+	}
 	loader.ping = func(context.Context, *rest.Config) error { return nil }
 
 	settings, err := loader.Load(ctx)

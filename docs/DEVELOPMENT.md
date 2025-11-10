@@ -129,8 +129,8 @@ export K0RDENT_MGMT_KUBECONFIG_PATH=./dev-kubeconfig
 # Optional: Specify context
 export K0RDENT_MGMT_CONTEXT=kind-k0rdent-dev
 
-# Optional: Custom port (default is 6767)
-export LISTEN_ADDR=:3000
+# Optional: Custom port (default is 127.0.0.1:6767 for security)
+export LISTEN_ADDR=127.0.0.1:3000
 
 # Optional: Namespace filter regex
 export K0RDENT_NAMESPACE_FILTER='^(kcm-system|default)$'
