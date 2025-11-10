@@ -345,6 +345,43 @@ Then the tool returns an error explaining the cluster was not found
 And no partial data is returned
 ```
 
+### Requirement: Operational metadata in getState response
+
+The `getState` tool SHALL return basic cluster metadata to provide operational context alongside deployment and service state information.
+
+#### Scenario: Metadata included in state response
+
+```
+Given a ClusterDeployment "demo-cluster" exists in namespace "kcm-system"
+And it was created using template "azure-standalone-cp" version "1.0.14"
+And it uses credential "azure-prod-cred" and is deployed in Azure region "westus2"
+When getState is called
+Then the response includes a metadata section with:
+  - name: "demo-cluster"
+  - namespace: "kcm-system"
+  - templateRef: {"name": "azure-standalone-cp", "namespace": "kcm-system", "version": "1.0.14"}
+  - credentialRef: {"name": "azure-prod-cred", "namespace": "kcm-system"}
+  - provider: "azure" (inferred from template/credential/labels)
+  - region: "westus2" (from spec.config.location or labels)
+  - createdAt: "2025-11-10T10:00:00Z"
+And this metadata provides operational context without exposing provider-specific infrastructure IDs
+```
+
+#### Scenario: Metadata excludes deep infrastructure details
+
+```
+Given a ClusterDeployment on Azure with infrastructure resources (VNet, subnets, resource group, etc.)
+When getState is called
+Then the metadata section does NOT include:
+  - Azure resource group ID
+  - VNet resource IDs
+  - Subnet IDs
+  - Security group IDs
+  - Load balancer IDs
+  - NAT gateway IDs
+And clients requiring these details must use the provider-specific detail tool: k0rdent.provider.azure.clusterDeployments.detail
+```
+
 ### Requirement: Service state details in getState response
 
 The `getState` tool SHALL extract and return detailed per-service state information from `.status.services`, enabling clients to identify which specific services are deployed, pending, ready, or failing.

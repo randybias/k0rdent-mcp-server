@@ -43,11 +43,14 @@ Add a **streaming subscription capability** to monitor ClusterDeployment resourc
    - Optionally streams logs from cluster provisioning pods (e.g., CAPI controllers)
    - Synthesizes a unified progress narrative from all sources
 
-4. **Service State Details**
-   - The `getState` tool extracts `.status.services` from ClusterDeployment
-   - Returns individual service states with names, templates, conditions, and ready status
-   - Enables clients to identify which specific services are failing or pending
-   - Includes per-service error messages and transition times for troubleshooting
+4. **Operational State View via `getState` Tool**
+   - The `k0rdent.mgmt.clusterDeployments.getState` tool provides an **operational monitoring view**
+   - Returns **basic cluster metadata**: name, namespace, templateRef, credentialRef, provider, region, createdAt
+   - Returns **deployment status**: phase, progress, ready state, conditions
+   - Returns **service states**: individual service names, templates, states, and conditions from `.status.services`
+   - **Excludes provider-specific infrastructure details** (VNet IDs, subnet IDs, resource groups, etc.)
+   - These infrastructure details are provided by separate `k0rdent.provider.<provider>.clusterDeployments.detail` tools
+   - Enables clients to monitor cluster provisioning progress and identify failing services without deep infrastructure inspection
 
 ### Architecture Approach
 

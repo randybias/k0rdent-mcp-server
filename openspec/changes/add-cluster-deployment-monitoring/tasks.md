@@ -264,20 +264,32 @@ Add a standard MCP tool so clients can fetch the latest monitoring snapshot with
 
 ---
 
-### 10b. Add service state extraction to ProgressUpdate
-- [ ] Todo
-Enhance the ProgressUpdate structure and getState tool to include detailed per-service state information from `.status.services`.
+### 10b. Enhance ProgressUpdate with operational metadata and service states
+- [x] Completed
+Enhance the ProgressUpdate structure and getState tool to provide a complete **operational monitoring view** with basic metadata, deployment status, and service states.
+
+**Scope**: This task implements the operational view for `getState`, which complements (but does not include) the deep infrastructure details provided by provider-specific `detail` tools.
 
 **Files**:
-- `internal/kube/cluster_monitor/types.go`: Add ServiceStatus type
+- `internal/kube/cluster_monitor/types.go`: Add ClusterMetadata and ServiceStatus types
 - `internal/clusters/summary.go`: Add ExtractServiceStatuses function
-- `internal/tools/core/cluster_monitor.go`: Update buildClusterProgress to include services
+- `internal/tools/core/cluster_monitor.go`: Update buildClusterProgress to include metadata and services
 
 **New Types**:
 ```go
+type ClusterMetadata struct {
+    Name          string            `json:"name"`
+    Namespace     string            `json:"namespace"`
+    TemplateRef   ResourceReference `json:"templateRef"`
+    CredentialRef ResourceReference `json:"credentialRef"`
+    Provider      string            `json:"provider"`      // cloudProvider (azure, aws, gcp)
+    Region        string            `json:"region"`        // location/region
+    CreatedAt     time.Time         `json:"createdAt"`
+}
+
 type ServiceStatus struct {
     Name              string              `json:"name"`
-    Namespace         string              `json:"namespace"`
+    Namespace         string              `json:"namespace,omitempty"`
     Template          string              `json:"template"`
     State             string              `json:"state"`             // Ready, Pending, Failed, Upgrading, etc.
     Type              string              `json:"type,omitempty"`   // Helm, etc.
@@ -287,18 +299,25 @@ type ServiceStatus struct {
 }
 
 type ProgressUpdate struct {
-    // ... existing fields ...
-    Services []ServiceStatus `json:"services,omitempty"`  // NEW
+    // ... existing fields (timestamp, phase, progress, message, reason, source, severity, conditions, terminal) ...
+    Metadata ClusterMetadata `json:"metadata"`           // NEW - basic operational context
+    Services []ServiceStatus `json:"services,omitempty"` // NEW - service deployment states
 }
 ```
 
 **Logic**:
+- Extract cluster metadata from ClusterDeployment (reusing `SummarizeClusterDeployment`):
+  - name, namespace, templateRef, credentialRef, provider, region, createdAt
+  - Do NOT include provider-specific infrastructure IDs (VNet IDs, subnet IDs, resource groups, etc.)
 - `ExtractServiceStatuses(obj *unstructured.Unstructured) []ServiceStatus`
   - Iterate through `.status.services` array
   - Extract name, namespace, template, state, type, version from each entry
   - Extract conditions array (type, status, reason, message, lastTransitionTime)
   - Handle missing/empty status.services gracefully (return empty slice)
-- Update `buildClusterProgress()` to call ExtractServiceStatuses and populate Services field
+- Update `buildClusterProgress()` to:
+  - Call ExtractServiceStatuses and populate Services field
+  - Build ClusterMetadata from summary
+  - Return complete operational monitoring view
 
 **Deliverables**:
 - ServiceStatus type with all required fields
