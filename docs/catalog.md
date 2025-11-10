@@ -388,24 +388,44 @@ The catalog manager implements intelligent caching using SQLite for optimal perf
 
 When you call `k0rdent.mgmt.serviceTemplates.install_from_catalog`, the server:
 
-1. **Queries Cache**: Looks up version metadata in SQLite database
-2. **Fetches Manifests**: Downloads ServiceTemplate and optional HelmRepository YAML from GitHub raw URLs
-3. **Validates Namespace**: Checks target namespace against configured namespace filter (if enabled)
-4. **Applies Resources**: Uses server-side apply with field manager `k0rdent-mcp-server`
+1. **Verifies Template**: Looks up version metadata in SQLite database to confirm template exists
+2. **Validates Namespace**: Checks target namespace against configured namespace filter (if enabled)
+3. **Installs via kgst**: Uses the official kgst (k0rdent Generic Service Template) Helm chart via Helm CLI
+4. **Creates Resources**: kgst handles ServiceTemplate and HelmRepository creation with proper hooks and verification
 5. **Returns Results**: Lists all applied resources with their namespace, kind, and name
 
-**Manifest Fetching:**
-- Manifests are fetched on-demand from GitHub raw URLs (e.g., `https://raw.githubusercontent.com/k0rdent/catalog/main/apps/minio/...`)
-- Not cached locally; always fetched fresh during installation
-- Reduces storage requirements and ensures latest manifest content
+**Installation Method:**
+
+The server uses the official k0rdent installation method documented at [catalog.k0rdent.io](https://catalog.k0rdent.io):
+
+```bash
+helm upgrade --install <template-name> \
+  oci://ghcr.io/k0rdent/catalog/charts/kgst:2.0.0 \
+  --set chart="<template>:<version>" \
+  --namespace <namespace> \
+  --wait --atomic
+```
+
+This approach ensures:
+- **Pre-install Verification**: kgst runs validation jobs before creating resources
+- **Proper Dependencies**: Operator dependencies (e.g., for valkey) are handled correctly
+- **Helm Lifecycle Hooks**: Resources are created in the correct order with proper hooks
+- **Automatic Rollback**: Failed installations are automatically rolled back
+- **Lock Recovery**: Stuck Helm operations are automatically detected and recovered
+
+**Previously Problematic Templates (Now Fixed):**
+- **valkey**: Now installs correctly with operator dependencies
+- **prometheus**: Now passes pre-install verification
+- **Complex templates**: Validation and hooks work as expected
 
 **Important Notes:**
 
 - **Management Cluster Only**: Installs resources to the management cluster, not child clusters
 - **Does Not Deploy Services**: Creates ServiceTemplate definition only; actual service deployment requires MultiClusterService
-- **Idempotent Operations**: Uses server-side apply, so repeated installs are safe
+- **Idempotent Operations**: Uses `helm upgrade --install`, so repeated installs are safe (upgrades existing release)
+- **Automatic Recovery**: Detects and recovers from stuck Helm releases automatically
 - **Uninstall Support**: Use `k0rdent.mgmt.serviceTemplates.delete` to remove installed templates
-- **No Upgrade Support**: No automated upgrade mechanism (manual deletion and reinstall required)
+- **Helm Requirement**: Requires `helm` v3.x binary in deployment environment
 
 ## Usage Workflow
 
