@@ -110,41 +110,35 @@ Read this section carefully before using:
 ### Installation
 
 1. **Install Claude Code** (if not already installed)
-   ```bash
-   # macOS/Linux
-   curl -fsSL https://claude.com/install.sh | sh
 
-   # Or download from: https://claude.com/claude-code
-   ```
+   - [Claude Code Quickstart](https://code.claude.com/docs/en/quickstart)
 
 2. **Configure MCP Server Connection**
 
    Add the k0rdent MCP server to your Claude Code configuration:
 
-   ```bash
-   # Edit Claude Code MCP settings
-   # Location: ~/.config/claude-code/mcp_settings.json (Linux/macOS)
-   #           %APPDATA%\claude-code\mcp_settings.json (Windows)
-   ```
+   - The easiest way is to use the [claude mcp command](https://code.claude.com/docs/en/mcp) from the CLI.
 
-   Add this server configuration:
-   ```json
-   {
-     "mcpServers": {
-       "k0rdent": {
-         "url": "http://localhost:6767/mcp",
-         "transport": "http"
-       }
-     }
-   }
-   ```
+3. **Start the k0rdent MCP server**
 
-3. **Start the k0rdent MCP server** (as shown in Quick Start above)
+   - As shown in Quick Start above
+
 
 4. **Launch Claude Code** and verify connection
+
    ```bash
    claude
    ```
+
+5. **Claude Code and MCP**
+
+   - The mcp command in Claude Code will get you to where you need to go:
+
+   ```bash
+   /mcp
+   ```
+
+   HINT: If you restart the server you will need to "reconnect" using the `/mcp` command.
 
 ### Example Usage
 
