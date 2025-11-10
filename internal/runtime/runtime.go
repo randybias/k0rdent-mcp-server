@@ -16,6 +16,7 @@ import (
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // Runtime wires global dependencies that are required to service MCP sessions.
@@ -37,6 +38,7 @@ type Session struct {
 	Clients         Clients
 	Clusters        *clusters.Manager
 	ClusterMetrics  *metrics.ClusterMetrics
+	factory         *kube.ClientFactory
 	settings        *config.Settings
 }
 
@@ -143,6 +145,7 @@ func (r *Runtime) NewSession(ctx context.Context, token string) (*Session, error
 		},
 		Clusters:       clusterManager,
 		ClusterMetrics: clusterMetrics,
+		factory:        r.factory,
 		settings:       r.settings,
 	}, nil
 }
@@ -177,6 +180,14 @@ func (s *Session) DeployFieldOwner() string {
 		return "mcp.clusters"
 	}
 	return s.settings.Cluster.DeployFieldOwner
+}
+
+// RESTConfig returns the REST config for the current session.
+func (s *Session) RESTConfig() (*rest.Config, error) {
+	if s == nil || s.factory == nil {
+		return nil, errors.New("session or factory is not configured")
+	}
+	return s.factory.RESTConfigForToken(s.Token)
 }
 
 // ResolveNamespaces returns the list of namespaces accessible to this session.

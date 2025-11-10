@@ -56,3 +56,42 @@
 - Namespace filter enforcement continues to work (installs rejected if target namespace not allowed).
 - Integration tests verify ServiceTemplate creation, HelmRepository creation with proper hooks, and verification job execution (when not skipped).
 - Documentation reflects the new Helm-based approach and mentions kgst as the underlying installation mechanism.
+
+## Implementation Notes
+
+### Helm CLI vs SDK Decision
+
+**Implemented Approach**: The final implementation uses the Helm CLI (`helm` command) via `exec.Command` rather than the Helm Go SDK as originally proposed in the design document.
+
+**Rationale**:
+- **Simplicity**: CLI approach required significantly less code (~300 lines vs estimated ~800+ lines for SDK)
+- **Stability**: CLI interface is stable and well-tested across Helm versions
+- **Debugging**: Helm CLI commands can be tested manually, making debugging easier
+- **Trade-offs accepted**:
+  - Requires `helm` binary in deployment environment (documented in deployment requirements)
+  - Error parsing is string-based rather than structured (implemented with pattern matching)
+  - Cannot access some internal Helm state (acceptable for current use cases)
+
+**Functional Equivalence**: Despite using CLI, the implementation achieves all acceptance criteria:
+- ✅ Installs via kgst chart (not direct manifests)
+- ✅ Handles verification jobs and hooks correctly
+- ✅ Provides clear error messages
+- ✅ Maintains idempotency via `helm upgrade --install`
+- ✅ Automatic recovery from stuck Helm operations via release history inspection
+
+**Key Implementation Details**:
+- `internal/helm/client.go`: Wraps Helm CLI with structured logging
+- `internal/helm/install.go`: Implements `InstallOrUpgrade()` with automatic lock recovery
+- `internal/helm/values.go`: Transforms MCP parameters to kgst values
+- Error handling includes detection of stuck/pending releases with automatic rollback
+- Chart reference: `oci://ghcr.io/k0rdent/catalog/charts/kgst:2.0.0`
+
+**Deployment Requirement**: Container images must include `helm` v3.x binary (already satisfied by current base images).
+
+### Fixes Applied Post-Implementation
+
+**Critical bug fixed**: Original implementation included `--create-namespace` flag which bypassed namespace filter validation. This has been removed to properly enforce RBAC and namespace restrictions.
+
+**Helm CLI compatibility fix**: Changed from using `helm get manifest --output json` (unsupported) to `helm status --output json` + `helm get manifest` (plain text).
+
+**Lock recovery**: Added automatic detection and recovery of stuck Helm releases (pending-upgrade state) to prevent the MCP server from becoming wedged.

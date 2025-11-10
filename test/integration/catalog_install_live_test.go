@@ -17,7 +17,6 @@ import (
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
-	"github.com/k0rdent/mcp-k0rdent-server/internal/tools/core"
 )
 
 // TestCatalogInstall_Live tests the full catalog install workflow

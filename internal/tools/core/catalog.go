@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/k0rdent/mcp-k0rdent-server/internal/catalog"
+	"github.com/k0rdent/mcp-k0rdent-server/internal/helm"
 	"github.com/k0rdent/mcp-k0rdent-server/internal/runtime"
 )
 
@@ -86,7 +87,7 @@ func registerCatalog(server *mcp.Server, session *runtime.Session, manager *cata
 	installTool := &catalogInstallTool{session: session, manager: manager}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "k0rdent.mgmt.serviceTemplates.install_from_catalog",
-		Description: "Install a ServiceTemplate from the k0rdent catalog. In DEV_ALLOW_ANY mode (uses kubeconfig), installs to kcm-system by default. In OIDC_REQUIRED mode (uses bearer token), requires explicit namespace or all_namespaces flag.",
+		Description: "Install a ServiceTemplate from the k0rdent catalog. In DEV_ALLOW_ANY mode (uses kubeconfig), installs to kcm-system by default. In OIDC_REQUIRED mode (uses bearer token), requires explicit namespace or all_namespaces flag. This installation uses the official kgst (k0rdent Generic Service Template) Helm chart which provides pre-install verification, proper resource ordering, and dependency resolution.",
 		Meta: mcp.Meta{
 			"plane":    "mgmt",
 			"category": "serviceTemplates",
@@ -135,7 +136,7 @@ func (t *catalogInstallTool) install(ctx context.Context, req *mcp.CallToolReque
 	ctx, logger := toolContext(ctx, t.session, name, "tool.catalog")
 	start := time.Now()
 
-	logger.Debug("installing catalog template",
+	logger.Debug("installing catalog template via kgst",
 		"tool", name,
 		"app", input.App,
 		"template", input.Template,
@@ -155,6 +156,34 @@ func (t *catalogInstallTool) install(ctx context.Context, req *mcp.CallToolReque
 		return nil, catalogInstallResult{}, fmt.Errorf("version is required")
 	}
 
+	// Verify template exists with catalog manager 
+	// For now we just list entries and check if template exists
+	entries, err := t.manager.List(ctx, input.App, false)
+	if err != nil {
+		logger.Error("failed to list catalog entries", "tool", name, "error", err)
+		return nil, catalogInstallResult{}, fmt.Errorf("list catalog entries: %w", err)
+	}
+	
+	// Check if template exists in the entries
+	found := false
+	for _, entry := range entries {
+		if entry.Slug == input.App {
+			for _, version := range entry.Versions {
+				if version.Name == input.Template && version.Version == input.Version {
+					found = true
+					break
+				}
+			}
+		}
+		if found {
+			break
+		}
+	}
+	
+	if !found {
+		return nil, catalogInstallResult{}, fmt.Errorf("template %s/%s:%s not found in catalog", input.App, input.Template, input.Version)
+	}
+
 	// Resolve target namespaces
 	targetNamespaces, err := t.resolveTargetNamespaces(ctx, input, logger)
 	if err != nil {
@@ -163,99 +192,104 @@ func (t *catalogInstallTool) install(ctx context.Context, req *mcp.CallToolReque
 
 	logger.Debug("resolved target namespaces", "tool", name, "namespaces", targetNamespaces)
 
-	// Get manifests from catalog
-	manifests, err := t.manager.GetManifests(ctx, input.App, input.Template, input.Version)
-	if err != nil {
-		logger.Error("failed to get manifests", "tool", name, "error", err)
-		return nil, catalogInstallResult{}, err
+	// Install kgst chart in each target namespace
+	var applied []string
+	var installedCount int
+	var updatedCount int
+
+	for _, targetNS := range targetNamespaces {
+		logger.Debug("installing to namespace via kgst", "tool", name, "namespace", targetNS)
+
+		// Create Helm client for this namespace
+		restConfig, err := t.session.RESTConfig()
+		if err != nil {
+			logger.Error("failed to get REST config", "tool", name, "namespace", targetNS, "error", err)
+			return nil, catalogInstallResult{}, fmt.Errorf("get REST config: %w", err)
+		}
+		
+		helmClient, err := helm.NewClient(restConfig, targetNS, logger)
+		if err != nil {
+			logger.Error("failed to create Helm client", "tool", name, "namespace", targetNS, "error", err)
+			return nil, catalogInstallResult{}, fmt.Errorf("create Helm client for namespace %s: %w", targetNS, err)
+		}
+		defer helmClient.Close()
+
+		// Validate kgst chart reference
+		kgstChartRef, err := helmClient.LoadKGSTChart(ctx, "") // Use default kgst version
+		if err != nil {
+			logger.Error("failed to validate kgst chart", "tool", name, "namespace", targetNS, "error", err)
+			return nil, catalogInstallResult{}, fmt.Errorf("validate kgst chart: %w", err)
+		}
+
+		// Build kgst values
+		values := helmClient.BuildKGSTValues(input.Template, input.Version, targetNS)
+
+		// Use template name as release name (consistent with catalog conventions)
+		releaseName := input.Template
+
+		// Install or upgrade the chart via CLI
+		release, err := helmClient.InstallOrUpgrade(ctx, releaseName, kgstChartRef, values)
+		if err != nil {
+			logger.Error("kgst install failed", 
+				"tool", name, 
+				"release_name", releaseName,
+				"namespace", targetNS,
+				"template", input.Template,
+				"version", input.Version,
+				"error", err)
+			return nil, catalogInstallResult{}, err
+		}
+
+		// Extract applied resources from the release
+		resources := helmClient.ExtractAppliedResources(release)
+		applied = append(applied, resources...)
+		
+		// Track operation status
+		if release.Info.Status == "deployed" {
+			if release.Version > 1 {
+				updatedCount++
+				logger.Info("kgst release updated", 
+					"tool", name,
+					"release_name", releaseName,
+					"namespace", targetNS,
+					"version", release.Version)
+			} else {
+				installedCount++
+				logger.Info("kgst release created", 
+					"tool", name,
+					"release_name", releaseName,
+					"namespace", targetNS)
+			}
+		} else {
+			logger.Warn("kgst release in unexpected state", 
+				"tool", name,
+				"release_name", releaseName,
+				"namespace", targetNS,
+				"status", release.Info.Status,
+				"description", release.Info.Description)
+		}
 	}
 
-	logger.Debug("manifests retrieved", "tool", name, "manifest_count", len(manifests))
-
-	// Apply manifests to each target namespace
-	var applied []string
-	for _, targetNS := range targetNamespaces {
-		logger.Debug("installing to namespace", "tool", name, "namespace", targetNS)
-
-		for i, manifest := range manifests {
-			// Parse YAML to unstructured
-			obj := &unstructured.Unstructured{}
-			if err := yaml.Unmarshal(manifest, &obj.Object); err != nil {
-				logger.Error("failed to parse manifest", "tool", name, "manifest_index", i, "error", err)
-				return nil, catalogInstallResult{}, fmt.Errorf("parse manifest %d: %w", i, err)
-			}
-
-			// Get GVK for processing
-			gvk := obj.GroupVersionKind()
-
-			// Convert v1alpha1 to v1beta1 if needed (catalog uses v1alpha1, clusters use v1beta1)
-			if obj.GetAPIVersion() == "k0rdent.mirantis.com/v1alpha1" {
-				obj.SetAPIVersion("k0rdent.mirantis.com/v1beta1")
-				// Update gvk after version change
-				gvk = obj.GroupVersionKind()
-				logger.Debug("converted API version", "tool", name, "from", "v1alpha1", "to", "v1beta1")
-			}
-
-			// Set namespace to target namespace for ServiceTemplates and HelmRepositories
-			if gvk.Kind == "ServiceTemplate" || gvk.Kind == "HelmRepository" {
-				obj.SetNamespace(targetNS)
-				logger.Debug("setting namespace", "tool", name, "kind", gvk.Kind, "namespace", targetNS)
-			}
-
-			// Determine GVR from GVK
-			gvr := schema.GroupVersionResource{
-				Group:    gvk.Group,
-				Version:  gvk.Version,
-				Resource: pluralize(gvk.Kind),
-			}
-
-			logger.Debug("applying resource",
-				"tool", name,
-				"kind", gvk.Kind,
-				"name", obj.GetName(),
-				"namespace", targetNS,
-			)
-
-			// Apply with server-side apply
-			resourceClient := t.session.Clients.Dynamic.Resource(gvr).Namespace(targetNS)
-			applyResult, err := resourceClient.Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
-				FieldManager: "k0rdent-mcp-server",
-				Force:        true,
-			})
-
-			if err != nil {
-				logger.Error("failed to apply resource",
-					"tool", name,
-					"kind", gvk.Kind,
-					"name", obj.GetName(),
-					"namespace", targetNS,
-					"error", err,
-				)
-				return nil, catalogInstallResult{}, fmt.Errorf("apply %s %s in namespace %s: %w", gvk.Kind, obj.GetName(), targetNS, err)
-			}
-
-			resourceName := fmt.Sprintf("%s/%s/%s", targetNS, gvk.Kind, applyResult.GetName())
-			applied = append(applied, resourceName)
-
-			logger.Debug("resource applied",
-				"tool", name,
-				"kind", gvk.Kind,
-				"name", applyResult.GetName(),
-				"namespace", targetNS,
-			)
-		}
+	// Determine overall status
+	status := "created"
+	if updatedCount > 0 && installedCount == 0 {
+		status = "updated"
+	} else if updatedCount > 0 && installedCount > 0 {
+		status = "mixed"
 	}
 
 	result := catalogInstallResult{
 		Applied: applied,
-		Status:  "created",
+		Status:  status,
 	}
 
-	logger.Info("catalog template installed",
+	logger.Info("catalog template installed via kgst",
 		"tool", name,
 		"app", input.App,
 		"template", input.Template,
 		"version", input.Version,
+		"installed_count", installedCount,
+		"updated_count", updatedCount,
 		"applied_count", len(applied),
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
