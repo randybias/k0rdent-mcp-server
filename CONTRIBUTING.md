@@ -31,14 +31,17 @@ go build -o server cmd/server/main.go
 
 ### 2. Configure Test Environment
 
-Create `config.yaml` pointing to a **non-production** k0rdent cluster:
+Set environment variables to point to a **non-production** k0rdent cluster:
 
-```yaml
-server:
-  port: 3000
+```bash
+# Required: kubeconfig for test cluster
+export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/test-cluster-kubeconfig
 
-kube:
-  kubeconfig: /path/to/test-cluster-kubeconfig
+# Optional: custom port (default is 6767)
+export LISTEN_ADDR=:3000
+
+# Optional: debug logging
+export LOG_LEVEL=debug
 ```
 
 **WARNING**: Do NOT use a production cluster for development. Bugs may corrupt cluster state or leave orphaned cloud resources.
@@ -61,7 +64,7 @@ go test -tags=integration ./...
 ./server start
 ```
 
-The server will start on `http://localhost:3000`.
+The server will start on `http://localhost:6767` (or your custom port from `LISTEN_ADDR`).
 
 ## What Needs Work
 

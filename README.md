@@ -64,7 +64,7 @@ Read this section carefully before using:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/k0rdent/k0rdent-mcp-server.git
+   git clone https://github.com/randybias/k0rdent-mcp-server.git
    cd k0rdent-mcp-server
    ```
 
@@ -73,15 +73,16 @@ Read this section carefully before using:
    go build -o server cmd/server/main.go
    ```
 
-3. **Create configuration**
-   Create `config.yaml` pointing to your k0rdent cluster:
-   ```yaml
-   server:
-     port: 3000
+3. **Set required environment variables**
+   ```bash
+   # Required: Point to your k0rdent cluster kubeconfig
+   export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/admin-kubeconfig
 
-   kube:
-     kubeconfig: /path/to/admin-kubeconfig
-     # Must have admin-level access to k0rdent cluster
+   # Optional: Override default port (6767)
+   export LISTEN_ADDR=:3000
+
+   # Optional: Set log level
+   export LOG_LEVEL=debug
    ```
 
 4. **Start the server**
@@ -90,7 +91,7 @@ Read this section carefully before using:
    ```
 
 5. **Connect Claude Desktop**
-   Configure your MCP client to connect to `http://localhost:3000/mcp`
+   Configure your MCP client to connect to `http://localhost:6767/mcp` (or your custom port)
 
 6. **Try safe operations first**
    - List namespaces (safest)
@@ -125,24 +126,42 @@ These features may not work:
 
 ## Configuration
 
-Minimal configuration example:
+The server is configured entirely through environment variables (no config file):
 
-```yaml
-# config.yaml
-server:
-  port: 3000
-  # TLS not supported - localhost only
+### Required Variables
 
-kube:
-  kubeconfig: /path/to/k0rdent-admin-kubeconfig
-  # Must be admin-level access
-  # RBAC enforcement not implemented
-
-# No OIDC configuration supported yet
-# No remote access configuration supported
+```bash
+# Kubeconfig (choose ONE method):
+export K0RDENT_MGMT_KUBECONFIG_PATH=/path/to/kubeconfig  # Path to file
+# OR
+export K0RDENT_MGMT_KUBECONFIG_B64=<base64-encoded>      # Base64-encoded
+# OR
+export K0RDENT_MGMT_KUBECONFIG_TEXT=<kubeconfig-yaml>    # Direct YAML
 ```
 
-See existing documentation for additional configuration options (with caveats).
+### Optional Variables
+
+```bash
+# Server configuration
+export LISTEN_ADDR=:6767                    # Listen address (default: :6767)
+export AUTH_MODE=DEV_ALLOW_ANY              # Auth mode (default: DEV_ALLOW_ANY)
+                                            # Options: DEV_ALLOW_ANY, OIDC_REQUIRED
+
+# Kubernetes configuration
+export K0RDENT_MGMT_CONTEXT=my-context      # Override kubeconfig context
+export K0RDENT_NAMESPACE_FILTER='^kcm-.*'   # Namespace filter regex
+
+# Logging configuration
+export LOG_LEVEL=info                       # Log level (debug, info, warn, error)
+export LOG_EXTERNAL_SINK_ENABLED=false      # Enable external JSON logging
+
+# Cluster provisioning defaults
+export CLUSTER_GLOBAL_NAMESPACE=kcm-system           # Global namespace (default: kcm-system)
+export CLUSTER_DEFAULT_NAMESPACE_DEV=kcm-system      # Dev mode namespace
+export CLUSTER_DEPLOY_FIELD_OWNER=mcp.clusters       # Server-side apply owner
+```
+
+**Note**: No config.yaml file is used. All configuration is via environment variables or command-line flags (`--listen`, `--debug`, `--log-level`).
 
 ## Tools Overview
 

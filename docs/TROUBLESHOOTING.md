@@ -12,12 +12,12 @@ Common issues and solutions when running the k0rdent MCP server.
 
 **Solution**:
 ```bash
-# Check what's using port 3000
-lsof -i :3000
+# Check what's using port 6767 (default)
+lsof -i :6767
 
-# Kill the process or change port in config.yaml
-server:
-  port: 3001  # Use different port
+# Kill the process or change port via environment variable
+export LISTEN_ADDR=:3001  # Use different port
+./server start
 ```
 
 #### Kubeconfig Not Found
@@ -25,9 +25,10 @@ server:
 **Error**: `failed to load kubeconfig: stat /path/to/kubeconfig: no such file or directory`
 
 **Solution**:
-- Verify the path in config.yaml is correct
+- Verify the path in `K0RDENT_MGMT_KUBECONFIG_PATH` is correct
 - Use absolute path, not relative
 - Check file permissions: `ls -la /path/to/kubeconfig`
+- Verify environment variable is set: `echo $K0RDENT_MGMT_KUBECONFIG_PATH`
 
 #### Invalid Kubeconfig
 
@@ -53,7 +54,8 @@ cat k0rdent-mcp-server.logs
 ```
 
 Common causes:
-- Invalid YAML in config.yaml
+- Missing required environment variables (K0RDENT_MGMT_KUBECONFIG_PATH)
+- Invalid kubeconfig file
 - Missing k0rdent installation on cluster
 - Network connectivity issues
 - RBAC permission problems
@@ -73,12 +75,12 @@ Common causes:
 
 ### Connection Refused
 
-**Error**: `Connection refused to http://localhost:3000/mcp`
+**Error**: `Connection refused to http://localhost:6767/mcp`
 
 **Solution**:
 1. **Verify server is running**:
    ```bash
-   curl http://localhost:3000/health
+   curl http://localhost:6767/health  # default port
    ```
 
 2. **Check server logs**:
@@ -86,14 +88,14 @@ Common causes:
    tail -f k0rdent-mcp-server.logs
    ```
 
-3. **Verify port number** matches in config.yaml and client configuration
+3. **Verify port number** matches `LISTEN_ADDR` environment variable and client configuration
 
 ### Client Can't List Tools
 
 **Error**: No tools appear in MCP client
 
 **Solution**:
-1. **Check MCP endpoint**: Should be `http://localhost:3000/mcp` (not just `http://localhost:3000`)
+1. **Check MCP endpoint**: Should be `http://localhost:6767/mcp` (not just `http://localhost:6767`) - use your custom port if set
 2. **Verify authentication**: Server on localhost requires no auth
 3. **Check server logs** for errors during tool registration
 
@@ -143,10 +145,8 @@ Common causes:
 # List available contexts
 kubectl config get-contexts --kubeconfig=/path/to/kubeconfig
 
-# Update config.yaml with correct context
-kube:
-  kubeconfig: /path/to/kubeconfig
-  context: correct-context-name
+# Set context via environment variable
+export K0RDENT_MGMT_CONTEXT=correct-context-name
 ```
 
 ## Cluster Deployment Issues
@@ -294,16 +294,15 @@ kube:
 
 ### Enable Debug Logging
 
-**In config.yaml**:
-```yaml
-server:
-  logLevel: debug
-```
-
-**Or environment variable**:
+**Via environment variable**:
 ```bash
 export LOG_LEVEL=debug
 ./server start
+```
+
+**Or via command-line flag**:
+```bash
+./server start --debug
 ```
 
 ### Watch Kubernetes Events

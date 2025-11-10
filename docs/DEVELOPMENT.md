@@ -120,21 +120,23 @@ go test -tags=integration ./... -v
 
 ## Configuring for Development
 
-### Create config.yaml
+### Set Environment Variables
 
-```yaml
-server:
-  port: 3000
-  # logLevel: debug  # Uncomment for verbose logging
+```bash
+# Required: Point to kubeconfig
+export K0RDENT_MGMT_KUBECONFIG_PATH=./dev-kubeconfig
 
-kube:
-  kubeconfig: ./dev-kubeconfig
-  # context: kind-k0rdent-dev  # Optional: specify context
+# Optional: Specify context
+export K0RDENT_MGMT_CONTEXT=kind-k0rdent-dev
 
-# Optional: Configure allowed namespaces
-# namespaceFilters:
-#   - kcm-system
-#   - default
+# Optional: Custom port (default is 6767)
+export LISTEN_ADDR=:3000
+
+# Optional: Namespace filter regex
+export K0RDENT_NAMESPACE_FILTER='^(kcm-system|default)$'
+
+# Optional: Debug logging
+export LOG_LEVEL=debug
 ```
 
 ### Verify Configuration
@@ -147,7 +149,7 @@ kubectl --kubeconfig=./dev-kubeconfig get ns
 ./server start
 
 # In another terminal, check server is running
-curl http://localhost:3000/health
+curl http://localhost:6767/health  # or your custom port
 ```
 
 ## Common Development Tasks
@@ -155,14 +157,17 @@ curl http://localhost:3000/health
 ### Running the Server
 
 ```bash
-# Standard mode
+# Standard mode (uses environment variables)
 ./server start
 
-# With debug logging
+# With debug logging (override via flag)
 ./server start --debug
 
-# Specify config file
-./server start --config ./custom-config.yaml
+# Override listen address via flag
+./server start --listen :8080
+
+# Set log level via flag
+./server start --log-level debug
 ```
 
 ### Watching Logs
@@ -182,7 +187,7 @@ kubectl --kubeconfig=./dev-kubeconfig logs -n kcm-system <pod-name> --follow
 
 Use an MCP client like Claude Desktop or the MCP inspector:
 
-1. **Configure client** to connect to `http://localhost:3000/mcp`
+1. **Configure client** to connect to `http://localhost:6767/mcp` (or your custom port)
 
 2. **Test basic operations**:
    - List namespaces
@@ -216,16 +221,15 @@ go build -o server cmd/server/main.go
 
 #### Enable Verbose Logging
 
-Add to config.yaml:
-```yaml
-server:
-  logLevel: debug
-```
-
-Or set environment variable:
+Set environment variable:
 ```bash
 export LOG_LEVEL=debug
 ./server start
+```
+
+Or use command-line flag:
+```bash
+./server start --debug
 ```
 
 #### Using Delve Debugger
@@ -252,8 +256,8 @@ kubectl --kubeconfig=./dev-kubeconfig cluster-info
 
 **Check port availability**:
 ```bash
-lsof -i :3000
-# If port is in use, either kill the process or change port in config.yaml
+lsof -i :6767  # or your custom port
+# If port is in use, either kill the process or change LISTEN_ADDR environment variable
 ```
 
 **Check logs for errors**:
@@ -299,17 +303,17 @@ The server currently requires admin access. If you see permission errors:
 
 **Check server is running**:
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:6767/health  # default port
 ```
 
 **Verify MCP endpoint**:
 ```bash
-curl http://localhost:3000/mcp
+curl http://localhost:6767/mcp
 # Should return MCP protocol response
 ```
 
 **Check client configuration**:
-- URL should be `http://localhost:3000/mcp`
+- URL should be `http://localhost:6767/mcp` (or your custom port)
 - No authentication required for localhost
 
 ### Provider Deployment Failures
@@ -333,17 +337,13 @@ curl http://localhost:3000/mcp
 
 ### Testing with Namespace Filters
 
-config.yaml:
-```yaml
-kube:
-  kubeconfig: ./dev-kubeconfig
-
-namespaceFilters:
-  - kcm-system
-  - test-namespace
+Set environment variable with regex pattern:
+```bash
+export K0RDENT_NAMESPACE_FILTER='^(kcm-system|test-namespace)$'
+./server start
 ```
 
-Restart server and verify only filtered namespaces are accessible.
+Verify only filtered namespaces are accessible.
 
 ### Testing OIDC (Not Yet Supported)
 
@@ -354,7 +354,7 @@ OIDC support is not implemented. Use kubeconfig mode only.
 Limited RBAC is not well-tested. For development:
 1. Create a service account with limited permissions
 2. Generate kubeconfig for that service account
-3. Configure server to use it
+3. Set `K0RDENT_MGMT_KUBECONFIG_PATH` to point to it
 4. Expect issues - RBAC enforcement is incomplete
 
 ## Code Organization
@@ -370,8 +370,9 @@ k0rdent-mcp-server/
 │   ├── subscriptions/   # MCP subscriptions (monitoring, events)
 │   └── catalog/         # Catalog operations
 ├── docs/                # Documentation
-├── openspec/            # Change proposals
-└── config.yaml          # Configuration file
+└── openspec/            # Change proposals
+
+# No config.yaml - configuration via environment variables
 ```
 
 ## Next Steps
