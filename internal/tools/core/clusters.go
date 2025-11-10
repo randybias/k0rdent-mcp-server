@@ -292,6 +292,45 @@ func registerClusters(server *mcp.Server, session *runtime.Session) error {
 		},
 	}, gcpDeployTool.deploy)
 
+	// Register k0rdent.provider.azure.clusterDeployments.detail
+	azureDetailTool := &azureClusterDetailTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.provider.azure.clusterDeployments.detail",
+		Description: "Fetch deep Azure infrastructure inspection for a ClusterDeployment. Returns provider-specific infrastructure details including resource group, subscription ID, location, network topology (VNet, subnets), NAT gateway, load balancers, and security groups. Complements getState by providing detailed infrastructure IDs and topology.",
+		Meta: mcp.Meta{
+			"plane":    "provider",
+			"category": "clusterDeployments",
+			"action":   "detail",
+			"provider": "azure",
+		},
+	}, azureDetailTool.detail)
+
+	// Register k0rdent.provider.gcp.clusterDeployments.detail
+	gcpDetailTool := &gcpClusterDetailTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.provider.gcp.clusterDeployments.detail",
+		Description: "Fetch deep GCP infrastructure inspection for a ClusterDeployment. Returns provider-specific infrastructure details including project, region, network topology, subnets, firewall rules, and routers. Complements getState by providing detailed infrastructure IDs and topology.",
+		Meta: mcp.Meta{
+			"plane":    "provider",
+			"category": "clusterDeployments",
+			"action":   "detail",
+			"provider": "gcp",
+		},
+	}, gcpDetailTool.detail)
+
+	// Register k0rdent.provider.aws.clusterDeployments.detail
+	awsDetailTool := &awsClusterDetailTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.provider.aws.clusterDeployments.detail",
+		Description: "Fetch deep AWS infrastructure inspection for a ClusterDeployment. Returns provider-specific infrastructure details including VPC ID, subnet IDs, security groups, load balancers, NAT gateways, internet gateway, and IAM roles. Complements getState by providing detailed infrastructure IDs and topology.",
+		Meta: mcp.Meta{
+			"plane":    "provider",
+			"category": "clusterDeployments",
+			"action":   "detail",
+			"provider": "aws",
+		},
+	}, awsDetailTool.detail)
+
 	// Register k0rdent.mgmt.clusterDeployments.delete
 	deleteTool := &clustersDeleteTool{session: session}
 	mcp.AddTool(server, &mcp.Tool{
