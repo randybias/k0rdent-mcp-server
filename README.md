@@ -96,8 +96,7 @@ Read this section carefully before using:
    ./server start
    ```
 
-5. **Connect Claude Desktop**
-   Configure your MCP client to connect to `http://localhost:6767/mcp` (or your custom port)
+5. **Configure Claude Code** (see detailed instructions below)
 
 6. **Try safe operations first**
    - List namespaces (safest)
@@ -105,6 +104,106 @@ Read this section carefully before using:
    - List credentials
 
    **WARNING**: Cluster deployment operations will create real cloud resources and incur costs.
+
+## Claude Code Setup
+
+### Installation
+
+1. **Install Claude Code** (if not already installed)
+   ```bash
+   # macOS/Linux
+   curl -fsSL https://claude.com/install.sh | sh
+
+   # Or download from: https://claude.com/claude-code
+   ```
+
+2. **Configure MCP Server Connection**
+
+   Add the k0rdent MCP server to your Claude Code configuration:
+
+   ```bash
+   # Edit Claude Code MCP settings
+   # Location: ~/.config/claude-code/mcp_settings.json (Linux/macOS)
+   #           %APPDATA%\claude-code\mcp_settings.json (Windows)
+   ```
+
+   Add this server configuration:
+   ```json
+   {
+     "mcpServers": {
+       "k0rdent": {
+         "url": "http://localhost:6767/mcp",
+         "transport": "http"
+       }
+     }
+   }
+   ```
+
+3. **Start the k0rdent MCP server** (as shown in Quick Start above)
+
+4. **Launch Claude Code** and verify connection
+   ```bash
+   claude
+   ```
+
+### Example Usage
+
+Once connected, you can use natural language to interact with your k0rdent clusters:
+
+#### Safe Exploration Commands
+```
+"List all namespaces in the management cluster"
+"Show me all available cluster templates"
+"What credentials are configured for Azure?"
+"List all cluster deployments"
+```
+
+#### Cluster Deployment Examples
+```
+"Deploy a new Azure cluster named 'dev-cluster' in eastus region using Standard_D2s_v3 VMs"
+
+"Create an AWS cluster with 3 control plane nodes and 5 workers in us-west-2"
+
+"Show me the provisioning status of cluster 'prod-cluster' in namespace 'kcm-system'"
+```
+
+#### Service Management Examples
+```
+"List all ServiceTemplates available in the catalog"
+
+"Install the ingress-nginx ServiceTemplate from the catalog"
+
+"Apply the monitoring ServiceTemplate to cluster 'dev-cluster'"
+
+"What services are currently running on cluster 'prod-cluster'?"
+```
+
+#### Monitoring and Troubleshooting
+```
+"Subscribe to provisioning updates for cluster 'dev-cluster' in namespace 'kcm-system'"
+
+"Show me recent events in the kcm-system namespace"
+
+"Get logs from pod 'controller-manager-xyz' in namespace 'kcm-system'"
+
+"What's the current state of my cluster deployment 'staging-cluster'?"
+```
+
+#### Cleanup
+```
+"Delete cluster 'dev-cluster' from namespace 'kcm-system'"
+
+"Remove the test-cluster and wait for deletion to complete"
+```
+
+### Tips for Using with Claude Code
+
+- **Start with read-only operations** to familiarize yourself with your cluster state
+- **Use natural language** – Claude Code understands intent, not just commands
+- **Ask for confirmations** on destructive operations (Claude Code will prompt you)
+- **Monitor costs** – cluster deployments create real cloud resources
+- **Use subscriptions** for long-running operations like cluster provisioning
+- **Check cluster state** before and after operations with `getState` tool
 
 ## What Works (Tested Minimally)
 
