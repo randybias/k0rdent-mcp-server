@@ -344,3 +344,76 @@ When the client calls the state tool for that namespace/name
 Then the tool returns an error explaining the cluster was not found
 And no partial data is returned
 ```
+
+### Requirement: Service state details in getState response
+
+The `getState` tool SHALL extract and return detailed per-service state information from `.status.services`, enabling clients to identify which specific services are deployed, pending, ready, or failing.
+
+#### Scenario: Extract service state from ClusterDeployment status
+
+```
+Given a ClusterDeployment "demo-cluster" in namespace "kcm-system" with 3 services deployed:
+  - minio (status: Ready, template: minio-14-1-2)
+  - valkey (status: Ready, template: valkey-0-1-0)
+  - cert-manager (status: Pending, template: cert-manager-1-18-2)
+When the client calls getState with {"namespace":"kcm-system","name":"demo-cluster"}
+Then the response includes a services array with 3 entries:
+  - Each entry contains: name, namespace, template, state, type, version
+  - minio shows state="Ready"
+  - valkey shows state="Ready"
+  - cert-manager shows state="Pending"
+And the aggregate message continues to show "2/3 services ready"
+```
+
+#### Scenario: Service conditions included in state
+
+```
+Given a ClusterDeployment with service "grafana" in state "Failed"
+And the service has conditions in .status.services:
+  - type: "Helm"
+    status: "False"
+    reason: "InstallFailed"
+    message: "Helm install failed: image pull timeout for grafana:10.1.0"
+    lastTransitionTime: "2025-11-10T14:40:15Z"
+When getState is called
+Then the response includes the grafana service entry with:
+  - state: "Failed"
+  - conditions array containing the Helm condition with full details
+  - lastTransitionTime preserves the timestamp
+And clients can display the specific failure reason without additional API calls
+```
+
+#### Scenario: Empty services list when no services deployed
+
+```
+Given a ClusterDeployment "bare-cluster" with no services deployed (spec.serviceSpec.services is empty or absent)
+When getState is called
+Then the response includes an empty services array: []
+And the aggregate message shows "0/0 services ready" or omits service count
+And no error is returned (empty is a valid state)
+```
+
+#### Scenario: Service state synchronization with spec
+
+```
+Given a ClusterDeployment specifies 5 services in spec.serviceSpec.services
+But only 3 have entries in .status.services (2 not yet reconciled)
+When getState is called
+Then the response includes only the 3 services with status entries
+And the aggregate count reflects "X/3" (status reality, not spec intent)
+And clients understand that absent status entries mean services are being reconciled
+```
+
+#### Scenario: Service upgrade state visibility
+
+```
+Given a service "minio" is being upgraded from version 14.1.2 to 14.2.0
+And the .status.services entry shows:
+  - state: "Upgrading"
+  - template: "minio-14-2-0"
+  - version: "minio-14-2-0"
+  - type: "Helm"
+When getState is called
+Then the response shows the service in "Upgrading" state
+And clients can display upgrade progress distinct from initial installation
+```

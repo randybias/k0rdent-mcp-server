@@ -95,3 +95,28 @@
 **Helm CLI compatibility fix**: Changed from using `helm get manifest --output json` (unsupported) to `helm status --output json` + `helm get manifest` (plain text).
 
 **Lock recovery**: Added automatic detection and recovery of stuck Helm releases (pending-upgrade state) to prevent the MCP server from becoming wedged.
+
+## Completion Summary
+
+**Status**: ✅ **COMPLETE**
+
+This change has been fully implemented and validated. All acceptance criteria have been met:
+
+- ✅ Catalog installations now use kgst Helm chart instead of direct manifest application
+- ✅ Valkey and prometheus installations work correctly with verification jobs and hooks
+- ✅ Clear, actionable error messages for installation failures
+- ✅ Idempotent operations via `helm upgrade --install`
+- ✅ Namespace filter enforcement maintained (security)
+- ✅ Automatic recovery from stuck Helm operations (robustness improvement)
+
+**Implementation approach**: Helm CLI via `exec.Command` (documented rationale: simplicity, stability, debuggability)
+
+**Code changes**:
+- Added `internal/helm/` package (~600 lines)
+- Refactored `internal/tools/core/catalog.go`
+- Added integration tests in `test/integration/`
+- Updated documentation
+
+**Deferred enhancements**: 6 optional features documented as out of scope (helm uninstall, skipVerifyJob parameter, local caching, custom kgst versions, retry logic, metrics) - none required for acceptance criteria.
+
+**Commit**: `9c04f58` (12 files changed, +1794/-78 lines)

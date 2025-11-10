@@ -264,6 +264,59 @@ Add a standard MCP tool so clients can fetch the latest monitoring snapshot with
 
 ---
 
+### 10b. Add service state extraction to ProgressUpdate
+- [ ] Todo
+Enhance the ProgressUpdate structure and getState tool to include detailed per-service state information from `.status.services`.
+
+**Files**:
+- `internal/kube/cluster_monitor/types.go`: Add ServiceStatus type
+- `internal/clusters/summary.go`: Add ExtractServiceStatuses function
+- `internal/tools/core/cluster_monitor.go`: Update buildClusterProgress to include services
+
+**New Types**:
+```go
+type ServiceStatus struct {
+    Name              string              `json:"name"`
+    Namespace         string              `json:"namespace"`
+    Template          string              `json:"template"`
+    State             string              `json:"state"`             // Ready, Pending, Failed, Upgrading, etc.
+    Type              string              `json:"type,omitempty"`   // Helm, etc.
+    Version           string              `json:"version,omitempty"`
+    Conditions        []ConditionSummary  `json:"conditions,omitempty"`
+    LastTransitionTime *time.Time         `json:"lastTransitionTime,omitempty"`
+}
+
+type ProgressUpdate struct {
+    // ... existing fields ...
+    Services []ServiceStatus `json:"services,omitempty"`  // NEW
+}
+```
+
+**Logic**:
+- `ExtractServiceStatuses(obj *unstructured.Unstructured) []ServiceStatus`
+  - Iterate through `.status.services` array
+  - Extract name, namespace, template, state, type, version from each entry
+  - Extract conditions array (type, status, reason, message, lastTransitionTime)
+  - Handle missing/empty status.services gracefully (return empty slice)
+- Update `buildClusterProgress()` to call ExtractServiceStatuses and populate Services field
+
+**Deliverables**:
+- ServiceStatus type with all required fields
+- Service extraction function returning detailed per-service state
+- getState tool response includes services array with full details
+- Empty clusters (no services) return empty services array without errors
+
+**Validation**:
+- Unit tests:
+  - `TestExtractServiceStatuses_MultipleServices` (3 services with different states)
+  - `TestExtractServiceStatuses_EmptyServices` (no services deployed)
+  - `TestExtractServiceStatuses_MissingStatusServices` (.status.services absent)
+  - `TestServiceStatusWithConditions` (service with failure conditions)
+- Integration test: Deploy cluster with 2 services, verify getState returns both with correct states
+- Manual verification: Call getState on demo-cluster, inspect services array in response
+
+---
+
 ### 11. Implement progress update publishing
 Publish `ResourceUpdated` notifications with progress deltas.
 

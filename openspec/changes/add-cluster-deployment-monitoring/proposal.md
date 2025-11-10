@@ -10,12 +10,14 @@ Currently, when a user deploys a k0rdent child cluster using the MCP Server tool
 2. **No real-time feedback**: Users must poll the `k0rdent.mgmt.clusterDeployments.list` tool repeatedly to check if the cluster is ready
 3. **Lost context during failures**: When provisioning fails, users don't see the sequence of events leading to the failure, making debugging difficult
 4. **Inefficient resource usage**: Polling is wasteful and adds latency between state changes and user awareness
+5. **No service state visibility**: The `getState` tool returns aggregate counts (e.g., "2/5 services ready") but not individual service names, states, or error messages, making it impossible to identify which specific services are failing
 
 **User impact:**
 
 - MCP clients (like Claude Code) cannot provide meaningful progress updates during cluster provisioning
 - Users don't know if their deployment is progressing normally or has stalled
 - Troubleshooting provisioning issues requires manual kubectl inspection of events and logs
+- When services fail to reach ready state, users cannot identify which services are stuck or why without manual kubectl inspection of ClusterDeployment `.status.services`
 
 ## Proposed Solution
 
@@ -40,6 +42,12 @@ Add a **streaming subscription capability** to monitor ClusterDeployment resourc
    - Monitors namespace events filtered by `involvedObject.name` matching the cluster
    - Optionally streams logs from cluster provisioning pods (e.g., CAPI controllers)
    - Synthesizes a unified progress narrative from all sources
+
+4. **Service State Details**
+   - The `getState` tool extracts `.status.services` from ClusterDeployment
+   - Returns individual service states with names, templates, conditions, and ready status
+   - Enables clients to identify which specific services are failing or pending
+   - Includes per-service error messages and transition times for troubleshooting
 
 ### Architecture Approach
 
