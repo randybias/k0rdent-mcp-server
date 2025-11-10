@@ -1,8 +1,14 @@
 # k0rdent MCP Server
 
 ⚠️ **Experimental Development Tool** – Early stage, expect issues
+
 🚧 **Localhost Only** – No TLS, admin kubeconfig required
-🤖 **AI-Assisted** – Code quality and security not production-ready
+
+🤖 **Developed with AI-Assistance** – Code quality and security not production-ready
+
+## **USE AT YOUR OWN RISK**
+
+You use this experimental MCP server at your own risk.  Neither Randy Bias nor Mirantis, Inc. take any responsibility for your usage.  This is a proof of concept for using AI agents to control k0rdent management and child clusters through the MCP protocol.  It is absolutely NOT production-ready.
 
 ## What This Is
 
@@ -162,16 +168,46 @@ export CLUSTER_DEPLOY_FIELD_OWNER=mcp.clusters       # Server-side apply owner
 
 ## Tools Overview
 
-The server exposes MCP tools for:
+The server exposes the following MCP tools:
 
-| Category | Tools | Status |
-|----------|-------|--------|
-| Cluster Management | list, deploy, delete | Azure works, AWS minimal, GCP untested |
-| Monitoring | cluster-monitor subscription | Tested on Azure |
-| Troubleshooting | events, pod logs | Basic functionality works |
-| Catalog | list, install ServiceTemplates | May have bugs |
-| Credentials | list providers, credentials | Works |
-| Templates | list ClusterTemplates | Works |
+| Tool Name | Purpose | Status |
+|-----------|---------|--------|
+| **Cluster Management** | | |
+| `k0rdent.mgmt.clusterDeployments.list` | List all ClusterDeployments | Works |
+| `k0rdent.mgmt.clusterDeployments.listAll` | List ClusterDeployments with selector | Works |
+| `k0rdent.mgmt.clusterDeployments.getState` | Get cluster state including services (WIP) | Works |
+| `k0rdent.mgmt.clusterDeployments.delete` | Delete a ClusterDeployment | Works |
+| `k0rdent.provider.aws.clusterDeployments.deploy` | Deploy child cluster to AWS provider | Minimal testing |
+| `k0rdent.provider.azure.clusterDeployments.deploy` | Deploy child cluster to Azure provider | Tested, requires subscriptionID |
+| `k0rdent.provider.gcp.clusterDeployments.deploy` | Deploy child cluster to GCP provider | Untested |
+| **Service Templates and Service Management** | | |
+| `k0rdent.mgmt.clusterDeployments.services.apply` | Apply ServiceTemplate to cluster | Mostly work; may be edge cases; doesn't handle params |
+| `k0rdent.mgmt.serviceTemplates.list` | List installed ServiceTemplates mgmt server | Works |
+| `k0rdent.mgmt.serviceTemplates.install_from_catalog` | Install ServiceTemplate to mgmt server from catalog | May have bugs; mostly tested |
+| `k0rdent.mgmt.serviceTemplates.delete` | Delete ServiceTemplate from mgmt server | Works |
+| `k0rdent.mgmt.multiClusterServices.list` | List MultiClusterServices | Untested |
+| **Catalog Operations** | | |
+| `k0rdent.catalog.serviceTemplates.list` | List catalog ServiceTemplates | Works |
+| **Provider & Credentials** | | |
+| `k0rdent.mgmt.providers.list` | List infrastructure providers | Works |
+| `k0rdent.mgmt.providers.listCredentials` | List provider credentials | Works |
+| `k0rdent.mgmt.providers.listIdentities` | List ClusterIdentity resources | Works |
+| **Cluster Templates** | | |
+| `k0rdent.mgmt.clusterTemplates.list` | List ClusterTemplates | Works |
+| **Kubernetes Operations** | | |
+| `k0rdent.mgmt.namespaces.list` | List namespaces | Works |
+| `k0rdent.mgmt.events.list` | List namespace events | Works |
+| `k0rdent.mgmt.podLogs.get` | Get pod logs | Works |
+
+### MCP Resources (Subscriptions)
+
+The server also provides streaming resources (largely untested):
+
+| Resource URI | Purpose | Status |
+|--------------|---------|--------|
+| `k0rdent://cluster-monitor/{namespace}/{name}` | Stream cluster provisioning updates | Tested on Azure |
+| `k0rdent://events/{namespace}` | Stream namespace events | Works |
+| `k0rdent://podlogs/{namespace}/{pod}/{container}` | Stream pod logs | Works |
 
 For detailed tool documentation, see `docs/` directory.
 
@@ -238,8 +274,8 @@ See `openspec list` for detailed proposed changes.
 
 ## Getting Help
 
-- **Issues**: https://github.com/k0rdent/k0rdent-mcp-server/issues
-- **Discussions**: https://github.com/k0rdent/k0rdent-mcp-server/discussions
+- **Issues**: https://github.com/randybias/k0rdent-mcp-server/issues
+- **Discussions**: https://github.com/randybias/k0rdent-mcp-server/discussions
 - **k0rdent Docs**: https://docs.k0rdent.io
 - **MCP Protocol**: https://modelcontextprotocol.io
 
