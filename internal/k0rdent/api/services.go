@@ -64,6 +64,22 @@ type ApplyClusterServiceResult struct {
 	Service map[string]any             `json:"service"`
 }
 
+// RemoveClusterServiceOptions specifies parameters for removing a service from a ClusterDeployment.
+type RemoveClusterServiceOptions struct {
+	ClusterNamespace string `json:"clusterNamespace"`
+	ClusterName      string `json:"clusterName"`
+	ServiceName      string `json:"serviceName"`
+	FieldOwner       string `json:"fieldOwner"`
+	DryRun           bool   `json:"dryRun,omitempty"`
+}
+
+// RemoveClusterServiceResult reports the outcome of a service removal.
+type RemoveClusterServiceResult struct {
+	RemovedService map[string]any             `json:"removedService"`
+	UpdatedCluster *unstructured.Unstructured `json:"updatedCluster"`
+	Message        string                     `json:"message"`
+}
+
 // ApplyClusterService fetches a ClusterDeployment, merges or creates the requested service entry,
 // and applies the change via server-side apply. It returns the updated ClusterDeployment object
 // (or the dry-run preview) plus the service payload that was sent.
@@ -352,4 +368,110 @@ func existingProviderConfig(cluster *unstructured.Unstructured) map[string]any {
 		return map[string]any{}
 	}
 	return deepCopyMap(provider)
+}
+
+// filterServiceEntries removes a service entry from the services slice by name.
+// Returns the filtered slice and the removed entry (nil if not found).
+func filterServiceEntries(existing []map[string]any, targetName string) ([]map[string]any, map[string]any) {
+	if len(existing) == 0 {
+		return existing, nil
+	}
+
+	var removed map[string]any
+	filtered := make([]map[string]any, 0, len(existing))
+
+	for _, entry := range existing {
+		name, _ := entry["name"].(string)
+		if name == targetName {
+			removed = deepCopyMap(entry)
+		} else {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	return filtered, removed
+}
+
+// RemoveClusterService removes a service entry from ClusterDeployment.spec.serviceSpec.services[]
+// and applies the change via server-side apply. It returns the removed service entry (if found),
+// the updated ClusterDeployment object (or the dry-run preview), and a status message.
+func RemoveClusterService(ctx context.Context, client dynamic.Interface, opts RemoveClusterServiceOptions) (RemoveClusterServiceResult, error) {
+	if client == nil {
+		return RemoveClusterServiceResult{}, errors.New("dynamic client is required")
+	}
+	if opts.ClusterNamespace == "" {
+		return RemoveClusterServiceResult{}, errors.New("cluster namespace is required")
+	}
+	if opts.ClusterName == "" {
+		return RemoveClusterServiceResult{}, errors.New("cluster name is required")
+	}
+	if opts.ServiceName == "" {
+		return RemoveClusterServiceResult{}, errors.New("service name is required")
+	}
+
+	fieldOwner := opts.FieldOwner
+	if fieldOwner == "" {
+		fieldOwner = defaultServiceFieldOwner
+	}
+
+	cluster, err := client.
+		Resource(clusterDeploymentGVR).
+		Namespace(opts.ClusterNamespace).
+		Get(ctx, opts.ClusterName, metav1.GetOptions{})
+	if err != nil {
+		return RemoveClusterServiceResult{}, fmt.Errorf("get cluster deployment: %w", err)
+	}
+
+	existingServices, err := existingServiceEntries(cluster)
+	if err != nil {
+		return RemoveClusterServiceResult{}, err
+	}
+
+	filteredServices, removedEntry := filterServiceEntries(existingServices, opts.ServiceName)
+
+	if removedEntry == nil {
+		return RemoveClusterServiceResult{
+			RemovedService: nil,
+			UpdatedCluster: cluster,
+			Message:        "service not found (already removed)",
+		}, nil
+	}
+
+	payload := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": cluster.GetAPIVersion(),
+			"kind":       cluster.GetKind(),
+			"metadata": map[string]any{
+				"name":      opts.ClusterName,
+				"namespace": opts.ClusterNamespace,
+			},
+			"spec": map[string]any{
+				"serviceSpec": map[string]any{
+					"services": toInterfaceSlice(filteredServices),
+				},
+			},
+		},
+	}
+
+	applyOptions := metav1.ApplyOptions{
+		FieldManager: fieldOwner,
+		Force:        true,
+	}
+	if opts.DryRun {
+		applyOptions.DryRun = []string{metav1.DryRunAll}
+	}
+
+	result, err := client.
+		Resource(clusterDeploymentGVR).
+		Namespace(opts.ClusterNamespace).
+		Apply(ctx, opts.ClusterName, payload, applyOptions)
+	if err != nil {
+		return RemoveClusterServiceResult{}, fmt.Errorf("apply cluster service removal: %w", err)
+	}
+
+	return RemoveClusterServiceResult{
+		RemovedService: removedEntry,
+		UpdatedCluster: result,
+		Message:        "service removed successfully",
+	}, nil
 }

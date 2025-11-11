@@ -171,6 +171,24 @@ type clusterServiceApplyResult struct {
 	DryRun           bool             `json:"dryRun"`
 }
 
+type removeClusterServiceTool struct {
+	session *runtime.Session
+}
+
+type removeClusterServiceInput struct {
+	ClusterNamespace string `json:"clusterNamespace"`
+	ClusterName      string `json:"clusterName"`
+	ServiceName      string `json:"serviceName"`
+	DryRun           bool   `json:"dryRun,omitempty"`
+}
+
+type removeClusterServiceResult struct {
+	RemovedService   map[string]any   `json:"removedService"`
+	UpdatedServices  []map[string]any `json:"updatedServices"`
+	Message          string           `json:"message"`
+	ClusterStatus    map[string]any   `json:"clusterStatus,omitempty"`
+}
+
 var defaultProviderSummaries = []clusters.ProviderSummary{
 	{Name: "aws", Title: "Amazon Web Services"},
 	{Name: "azure", Title: "Microsoft Azure"},
@@ -250,6 +268,18 @@ func registerClusters(server *mcp.Server, session *runtime.Session) error {
 			"action":   "services.apply",
 		},
 	}, serviceApplyTool.apply)
+
+	// Register k0rdent.mgmt.clusterDeployments.services.remove
+	serviceRemoveTool := &removeClusterServiceTool{session: session}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "k0rdent.mgmt.clusterDeployments.services.remove",
+		Description: "Remove a service from a running ClusterDeployment by deleting its entry from spec.serviceSpec.services[]",
+		Meta: mcp.Meta{
+			"plane":    "mgmt",
+			"category": "clusterDeployments",
+			"action":   "services.remove",
+		},
+	}, serviceRemoveTool.remove)
 
 	// Register provider-specific cluster deployment tools
 
@@ -891,6 +921,128 @@ func (t *clusterServiceApplyTool) apply(ctx context.Context, req *mcp.CallToolRe
 	)
 
 	return nil, response, nil
+}
+
+func (t *removeClusterServiceTool) remove(ctx context.Context, req *mcp.CallToolRequest, input removeClusterServiceInput) (*mcp.CallToolResult, removeClusterServiceResult, error) {
+	name := toolName(req)
+	ctx, logger := toolContext(ctx, t.session, name, "tool.clusters")
+	start := time.Now()
+	outcome := metrics.OutcomeSuccess
+	// TODO: Add metrics tracking once RecordServiceRemove is implemented in metrics package
+	_ = outcome // Suppress unused variable warning until metrics are added
+
+	clusterNamespace := strings.TrimSpace(input.ClusterNamespace)
+	clusterName := strings.TrimSpace(input.ClusterName)
+	serviceName := strings.TrimSpace(input.ServiceName)
+
+	if clusterNamespace == "" {
+		outcome = metrics.OutcomeError
+		return nil, removeClusterServiceResult{}, fmt.Errorf("clusterNamespace is required")
+	}
+	if clusterName == "" {
+		outcome = metrics.OutcomeError
+		return nil, removeClusterServiceResult{}, fmt.Errorf("clusterName is required")
+	}
+	if serviceName == "" {
+		outcome = metrics.OutcomeError
+		return nil, removeClusterServiceResult{}, fmt.Errorf("serviceName is required")
+	}
+
+	if err := t.ensureNamespaceAllowed("clusterNamespace", clusterNamespace); err != nil {
+		outcome = metrics.OutcomeForbidden
+		return nil, removeClusterServiceResult{}, err
+	}
+
+	logger.Debug("removing cluster service",
+		"tool", name,
+		"cluster_namespace", clusterNamespace,
+		"cluster_name", clusterName,
+		"service_name", serviceName,
+		"dry_run", input.DryRun,
+	)
+
+	client := t.session.Clients.Dynamic
+
+	removeOpts := api.RemoveClusterServiceOptions{
+		ClusterNamespace: clusterNamespace,
+		ClusterName:      clusterName,
+		ServiceName:      serviceName,
+		DryRun:           input.DryRun,
+	}
+
+	removeResult, err := api.RemoveClusterService(ctx, client, removeOpts)
+	if err != nil {
+		outcome = classifyMetricsOutcome(err)
+		logger.Error("failed to remove service", "tool", name, "error", err)
+		return nil, removeClusterServiceResult{}, err
+	}
+
+	statusSource := removeResult.UpdatedCluster
+	if !input.DryRun {
+		refreshed, err := client.
+			Resource(api.ClusterDeploymentGVR()).
+			Namespace(clusterNamespace).
+			Get(ctx, clusterName, metav1.GetOptions{})
+		if err != nil {
+			logger.Warn("failed to refresh cluster after remove", "tool", name, "error", err)
+		} else {
+			statusSource = refreshed
+		}
+	}
+
+	response := removeClusterServiceResult{
+		RemovedService:  removeResult.RemovedService,
+		UpdatedServices: extractUpdatedServices(statusSource),
+		Message:         removeResult.Message,
+	}
+
+	statusMap, _, _ := unstructured.NestedMap(statusSource.Object, "status")
+	if statusMap != nil {
+		response.ClusterStatus = deepCopyJSONMap(statusMap)
+	}
+
+	logger.Info("cluster service remove completed",
+		"tool", name,
+		"cluster_namespace", clusterNamespace,
+		"cluster_name", clusterName,
+		"service_name", serviceName,
+		"removed", removeResult.RemovedService != nil,
+		"dry_run", input.DryRun,
+		"message", removeResult.Message,
+		"duration_ms", time.Since(start).Milliseconds(),
+	)
+
+	return nil, response, nil
+}
+
+func (t *removeClusterServiceTool) ensureNamespaceAllowed(field, namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("%s is required", field)
+	}
+	if t.session == nil || t.session.NamespaceFilter == nil || t.session.IsDevMode() {
+		return nil
+	}
+	if t.session.NamespaceFilter.MatchString(namespace) {
+		return nil
+	}
+	return fmt.Errorf("%s %q not allowed by namespace filter", field, namespace)
+}
+
+func extractUpdatedServices(cluster *unstructured.Unstructured) []map[string]any {
+	if cluster == nil {
+		return nil
+	}
+	list, found, err := unstructured.NestedSlice(cluster.Object, "spec", "serviceSpec", "services")
+	if err != nil || !found {
+		return nil
+	}
+	services := make([]map[string]any, 0, len(list))
+	for _, entry := range list {
+		if m, ok := entry.(map[string]any); ok {
+			services = append(services, deepCopyJSONMap(m))
+		}
+	}
+	return services
 }
 
 func (t *clusterServiceApplyTool) ensureNamespaceAllowed(field, namespace string) error {
